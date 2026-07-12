@@ -34,9 +34,19 @@ public final class LassoProcessor {
             }
         }
 
-        // 2. Find seed hex inside wall
+        // 2. Strip out-of-bounds wall hexes
+        wall.removeIf(k -> {
+            int[] qr = MapData.parseHexKey(k);
+            return Math.abs(qr[0]) > MAX_RADIUS || Math.abs(qr[1]) > MAX_RADIUS;
+        });
+        if (wall.isEmpty()) return Collections.emptySet();
+
+        // 2b. Find seed hex inside wall
         String seed = findSeed(rawKeys);
         if (seed == null || wall.contains(seed)) return Collections.emptySet();
+        // Ensure seed is in bounds
+        int[] sqr = MapData.parseHexKey(seed);
+        if (Math.abs(sqr[0]) > MAX_RADIUS || Math.abs(sqr[1]) > MAX_RADIUS) return Collections.emptySet();
 
         // 3. Flood fill from seed, bounded by wall
         Set<String> filled = new HashSet<>();
@@ -48,18 +58,16 @@ public final class LassoProcessor {
         while (!stack.isEmpty() && filled.size() < maxFill) {
             String key = stack.pop();
             if (visited.contains(key) || wall.contains(key)) continue;
-            visited.add(key);
-            filled.add(key);
             int[] qr = MapData.parseHexKey(key);
             if (Math.abs(qr[0]) > MAX_RADIUS || Math.abs(qr[1]) > MAX_RADIUS) continue;
+            visited.add(key);
+            filled.add(key);
             for (int[] d : DIRS) {
                 String nk = (qr[0]+d[0]) + "_" + (qr[1]+d[1]);
                 if (!visited.contains(nk) && !wall.contains(nk)) stack.push(nk);
             }
         }
 
-        // Include wall hexes in the fill
-        filled.addAll(wall);
         return filled;
     }
 
