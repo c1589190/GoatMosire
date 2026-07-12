@@ -414,6 +414,7 @@ function showProvinceList() {
   const body = document.getElementById('infoBody');
   const provs = mapData?.provinces || {};
   const names = Object.keys(provs);
+  const mapTotal = Object.keys(mapData?.hexes || {}).length;
 
   title.textContent = `🏛 省份 (${names.length})`;
   if (names.length === 0) {
@@ -422,10 +423,12 @@ function showProvinceList() {
     body.innerHTML = names.map(name => {
       const p = provs[name];
       const sel = selectedProvince === name ? 'border:2px solid var(--accent);' : '';
+      const ratio = (p.hexes||[]).length / Math.max(mapTotal, 1);
+      const warn = ratio > 0.8 ? ' ⚠️过大' : '';
       return `<div style="margin-bottom:6px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${sel}"
         onclick="selectProvince('${name}')">
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color||'#888'};margin-right:6px"></span>
-        <b>${name}</b> <span style="color:var(--dim);font-size:10px">${(p.hexes||[]).length}格</span>
+        <b>${name}</b> <span style="color:${ratio>0.8?'orange':'var(--dim)'};font-size:10px">${(p.hexes||[]).length}格${warn}</span>
         <button onclick="event.stopPropagation();deleteProvince('${name}')" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="删除">✕</button>
       </div>`;
     }).join('');
