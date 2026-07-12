@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoatMosire — Hex Map Editor</title>
+<style>
+:root {
+  --bg: #1a1a2e; --panel: #16213e; --accent: #e67e22;
+  --text: #e0e0e0; --dim: #888; --border: #2a2a4a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Toolbar */
+.toolbar {
+  height: 48px; background: var(--panel); display: flex; align-items: center;
+  padding: 0 12px; gap: 8px; border-bottom: 1px solid var(--border); z-index: 100;
+}
+.toolbar select, .toolbar button, .toolbar input[type=color] {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+}
+.toolbar button:hover { background: var(--accent); color: #fff; }
+.toolbar button.active { background: var(--accent); color: #fff; }
+.toolbar .spacer { flex: 1; }
+.toolbar .status { font-size: 11px; color: var(--dim); }
+
+/* Canvas area */
+.canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #0f0f23; }
+#mapCanvas { display: block; position: absolute; top: 0; left: 0; }
+
+/* Tooltip */
+.tooltip {
+  position: absolute; pointer-events: none; background: rgba(0,0,0,0.85);
+  color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px;
+  display: none; z-index: 200; white-space: nowrap;
+}
+
+/* Toast */
+.goat-toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--accent); color: #fff; padding: 8px 20px; border-radius: 8px;
+  font-size: 13px; z-index: 9999; transition: opacity 0.3s;
+}
+.goat-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex;
+  align-items: center; justify-content: center; z-index: 9998;
+}
+.goat-modal {
+  background: var(--panel); padding: 24px; border-radius: 12px; min-width: 300px;
+}
+.goat-modal h3 { margin-bottom: 12px; }
+.goat-modal-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.goat-modal-buttons button { padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+.goat-modal-buttons .goat-btn-confirm { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span style="font-weight:700;color:var(--accent)">⬡ GoatMosire</span>
+  <select id="worldSelect" onchange="onWorldChange()"><option>loading...</option></select>
+  <button id="btnPen" class="active" onclick="setTool('pen')" title="Pen">🖊</button>
+  <button id="btnFill" onclick="setTool('fill')" title="Fill">🪣</button>
+  <button id="btnEraser" onclick="setTool('eraser')" title="Eraser">🧹</button>
+  <input type="color" id="colorPicker" value="#6CC261" title="Color">
+  <span class="spacer"></span>
+  <button onclick="saveMap()" title="Save (Ctrl+S)">💾 Save</button>
+  <button onclick="fitView()" title="Fit">🔍 Fit</button>
+  <span class="status" id="statusBar">Ready</span>
+</div>
+
+<div class="canvas-wrap" id="canvasWrap">
+  <canvas id="mapCanvas"></canvas>
+  <div class="tooltip" id="tooltip"></div>
+</div>
+
+<script src="map-api.js"></script>
+<script>
+// ── Hex Math ────────────────────────────────────────────
+const GRID = 30; // pixel size per hex
+
+function hexToPixel(q, r) {
+  return {
+    x: GRID * (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r),
+    y: GRID * (3 / 2 * r)
+  };
+}
+
+function pixelToHex(x, y) {
+  const s = GRID;
+  const fq = (Math.sqrt(3) / 3 * x - 1 / 3 * y) / s;
+  const fr = (2 / 3 * y) / s;
+  return hexRound(fq, fr);
+}
+
+function hexRound(fq, fr) {
+  const fs = -fq - fr;
+  let q = Math.round(fq), r = Math.round(fr), s = Math.round(fs);
+  const dq = Math.abs(q - fq), dr = Math.abs(r - fr), ds = Math.abs(s - fs);
+  if (dq > dr && dq > ds) q = -r - s;
+  else if (dr > ds) r = -q - s;
+  return { q, r };
+}
+
+function hexCorners(cx, cy, size = GRID) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.PI / 180 * (60 * i - 30);
+    pts.push([cx + size * Math.cos(angle), cy + size * Math.sin(angle)]);
+  }
+  return pts;
+}
+
+// ── State ───────────────────────────────────────────────
+let mapData = null;       // current MapData from API
+let tool = 'pen';
+let color = '#6CC261';
+let zoom = 1;
+let offX = 0, offY = 0;
+let mouseDown = false;
+let lastHex = null;
+let panStart = null, panOff = null;
+
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('canvasWrap');
+const tooltip = document.getElementById('tooltip');
+
+// ── Init ────────────────────────────────────────────────
+async function init() {
+  MapAPI.init();
+  document.getElementById('colorPicker').onchange = e => color = e.target.value;
+
+  // Load world list
+  try {
+    const { worlds } = await MapAPI.listWorlds();
+    const sel = document.getElementById('worldSelect');
+    sel.innerHTML = worlds.map(w => `<option value="${w}">${w}</option>`).join('');
+    if (worlds.length > 0) {
+      sel.value = MapAPI.worldId;
+      await loadMap();
+    }
+  } catch (e) {
+    showToast('Failed to load worlds: ' + e.message);
+  }
+
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+}
+
+async function onWorldChange() {
+  MapAPI.worldId = document.getElementById('worldSelect').value;
+  MapAPI.nodeId = null;
+  await loadMap();
+}
+
+async function loadMap() {
+  try {
+    mapData = await MapAPI.load();
+    fitView();
+    setStatus(`Loaded: ${MapAPI.worldId} (${Object.keys(mapData.hexes||{}).length} hexes)`);
+  } catch (e) {
+    showToast('Load failed: ' + e.message);
+    mapData = { hexes: {}, provinces: {}, cities: {}, gridSize: 30, hexOrientation: false };
+    fitView();
+  }
+}
+
+async function saveMap() {
+  if (!mapData) return;
+  try {
+    await MapAPI.save(mapData);
+    setStatus('Saved');
+    showToast('Map saved');
+  } catch (e) {
+    showToast('Save failed: ' + e.message);
+  }
+}
+
+// ── Rendering ───────────────────────────────────────────
+function render() {
+  if (!mapData) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+
+  Object.entries(mapData.hexes || {}).forEach(([key, cell]) => {
+    const [q, r] = key.split('_').map(Number);
+    const { x, y } = hexToPixel(q, r);
+    const corners = hexCorners(x, y, GRID - 1);
+
+    ctx.beginPath();
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = cell.color || '#808080';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff22';
+    ctx.lineWidth = 0.5 / zoom;
+    ctx.stroke();
+
+    // Symbol indicator
+    if (cell.symbol) {
+      ctx.fillStyle = '#fff';
+      ctx.font = `${10/zoom}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(cell.symbol[0].toUpperCase(), x, y + 3/zoom);
+    }
+  });
+
+  ctx.restore();
+}
+
+function resizeCanvas() {
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+  render();
+}
+
+function fitView() {
+  if (!mapData || Object.keys(mapData.hexes || {}).length === 0) {
+    zoom = 1; offX = canvas.width / 2; offY = canvas.height / 2;
+    render(); return;
+  }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  Object.keys(mapData.hexes).forEach(key => {
+    const [q, r] = key.split('_').map(Number);
+    const { x, y } = hexToPixel(q, r);
+    minX = Math.min(minX, x - GRID); maxX = Math.max(maxX, x + GRID);
+    minY = Math.min(minY, y - GRID); maxY = Math.max(maxY, y + GRID);
+  });
+  const w = maxX - minX, h = maxY - minY;
+  const zx = canvas.width * 0.85 / w, zy = canvas.height * 0.85 / h;
+  zoom = Math.min(zx, zy, 3);
+  offX = canvas.width / 2 - (minX + maxX) / 2 * zoom;
+  offY = canvas.height / 2 - (minY + maxY) / 2 * zoom;
+  render();
+}
+
+// ── Interaction ─────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+    panStart = { x: e.clientX, y: e.clientY };
+    panOff = { x: offX, y: offY };
+    return;
+  }
+  if (e.button !== 0) return;
+  mouseDown = true;
+  const h = getHexAtEvent(e);
+  if (h) applyTool(h.q, h.r);
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (panStart) {
+    offX = panOff.x + (e.clientX - panStart.x);
+    offY = panOff.y + (e.clientY - panStart.y);
+    render();
+    return;
+  }
+  const h = getHexAtEvent(e);
+  if (h) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 15) + 'px';
+    tooltip.style.top = (e.clientY - 20) + 'px';
+    const cell = (mapData?.hexes || {})[`${h.q}_${h.r}`];
+    tooltip.textContent = `(${h.q},${h.r}) ${cell?.terrain || 'empty'} ${cell?.symbol||''}`;
+    if (mouseDown && tool !== 'eraser') applyTool(h.q, h.r);
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+canvas.addEventListener('mouseup', () => { mouseDown = false; panStart = null; lastHex = null; });
+canvas.addEventListener('mouseleave', () => { mouseDown = false; panStart = null; tooltip.style.display = 'none'; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const newZoom = Math.max(0.1, Math.min(5, zoom * factor));
+  const mx = e.offsetX, my = e.offsetY;
+  offX = mx - (mx - offX) * (newZoom / zoom);
+  offY = my - (my - offY) * (newZoom / zoom);
+  zoom = newZoom;
+  render();
+}, { passive: false });
+
+function getHexAtEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left - offX) / zoom;
+  const my = (e.clientY - rect.top - offY) / zoom;
+  return pixelToHex(mx, my);
+}
+
+function applyTool(q, r) {
+  const key = `${q}_${r}`;
+  if (!mapData.hexes) mapData.hexes = {};
+  if (tool === 'eraser') {
+    delete mapData.hexes[key];
+  } else if (tool === 'pen') {
+    mapData.hexes[key] = { color, terrain: 'custom' };
+  } else if (tool === 'fill') {
+    const target = mapData.hexes[key];
+    const targetColor = target?.color || null;
+    floodFill(q, r, targetColor, color);
+  }
+  render();
+}
+
+function floodFill(sq, sr, targetColor, newColor) {
+  const key = `${sq}_${sr}`;
+  const cell = mapData.hexes[key];
+  const currentColor = cell?.color || null;
+  if (currentColor === newColor) return;
+  if (targetColor !== null && currentColor !== targetColor) return;
+
+  const stack = [{ q: sq, r: sr }];
+  const visited = new Set();
+  while (stack.length > 0) {
+    const { q, r } = stack.pop();
+    const k = `${q}_${r}`;
+    if (visited.has(k)) continue;
+    visited.add(k);
+    const c = mapData.hexes[k];
+    const cc = c?.color || null;
+    if (targetColor !== null && cc !== targetColor) continue;
+    mapData.hexes[k] = { color: newColor, terrain: 'custom' };
+
+    const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    for (const [dq, dr] of dirs) {
+      stack.push({ q: q + dq, r: r + dr });
+    }
+  }
+}
+
+// ── Tools ───────────────────────────────────────────────
+function setTool(t) {
+  tool = t;
+  ['Pen','Fill','Eraser'].forEach(id =>
+    document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase() === t));
+}
+
+function setStatus(msg) {
+  document.getElementById('statusBar').textContent = msg;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveMap(); }
+  if (e.key === 'f' && !e.ctrlKey) { fitView(); }
+});
+
+// ── Start ───────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
