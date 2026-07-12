@@ -227,7 +227,8 @@ function render() {
   }
 
   ctx.restore();
-  renderRivers();  // draw rivers on top
+  renderRivers();
+  renderProvinceHighlight();
 }
 
 function resizeCanvas() {
@@ -303,6 +304,9 @@ function setTool(t) {
     document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
   riverStart = null;
   provincePts = [];
+  selectedProvince = null;
+  if (t === 'province') showProvinceList();
+  else { document.getElementById('infoPanel').style.display = 'none'; }
 }
 
 // ── River constants ─────────────────────────────────────
@@ -401,7 +405,88 @@ function renderRivers() {
 }
 
 // ── Province Tool ───────────────────────────────────────
-let provincePts = [];  // [{q, r}, ...] boundary waypoints
+let provincePts = [];
+let selectedProvince = null;
+
+function showProvinceList() {
+  const panel = document.getElementById('infoPanel');
+  const title = document.getElementById('infoTitle');
+  const body = document.getElementById('infoBody');
+  const provs = mapData?.provinces || {};
+  const names = Object.keys(provs);
+
+  title.textContent = `🏛 省份 (${names.length})`;
+  if (names.length === 0) {
+    body.innerHTML = '<div style="color:var(--dim);font-size:11px">点击地图圈边界，再点起点闭合创建省份</div>';
+  } else {
+    body.innerHTML = names.map(name => {
+      const p = provs[name];
+      const sel = selectedProvince === name ? 'border:2px solid var(--accent);' : '';
+      return `<div style="margin-bottom:6px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${sel}"
+        onclick="selectProvince('${name}')">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color||'#888'};margin-right:6px"></span>
+        <b>${name}</b> <span style="color:var(--dim);font-size:10px">${(p.hexes||[]).length}格</span>
+        <button onclick="event.stopPropagation();deleteProvince('${name}')" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="删除">✕</button>
+      </div>`;
+    }).join('');
+  }
+  panel.style.display = 'block';
+}
+
+function selectProvince(name) {
+  selectedProvince = name;
+  showProvinceList();
+  render();
+  renderProvinceHighlight();
+}
+
+function deleteProvince(name) {
+  if (confirm(`删除省份「${name}」？`)) {
+    delete mapData.provinces[name];
+    if (selectedProvince === name) selectedProvince = null;
+    showProvinceList();
+    render();
+  }
+}
+
+function renderProvinceHighlight() {
+  if (!selectedProvince || !mapData?.provinces) return;
+  const p = mapData.provinces[selectedProvince];
+  if (!p?.hexes) return;
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  // Draw colored fill for province hexes
+  ctx.fillStyle = (p.color || '#FF0000') + '33';
+  for (const key of p.hexes) {
+    const [q, r] = key.split('_').map(Number);
+    const {x, y} = hexToPixel(q, r);
+    const corners = hexCorners(x, y, GRID - 1);
+    ctx.beginPath();
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Draw border dots at boundary hexes
+  ctx.fillStyle = p.color || '#FF0000';
+  const allHexes = new Set(p.hexes);
+  for (const key of p.hexes) {
+    const [q, r] = key.split('_').map(Number);
+    // Check if any neighbor is outside the province
+    let isBoundary = false;
+    for (const [dq, dr] of DIR_VECTORS) {
+      if (!allHexes.has(`${q+dq}_${r+dr}`)) { isBoundary = true; break; }
+    }
+    if (isBoundary) {
+      const {x, y} = hexToPixel(q, r);
+      ctx.beginPath();
+      ctx.arc(x, y, 3/zoom, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
 
 function hexLine(aq, ar, bq, br) {
   const dist = Math.max(Math.abs(bq - aq), Math.abs(br - ar), Math.abs((-bq-br) - (-aq-ar)));
@@ -484,7 +569,9 @@ function finishProvince() {
     tag: '', description: ''
   };
   provincePts = [];
-  setTool('pen');
+  selectedProvince = name;
+  setTool('province');
+  showProvinceList();
   render();
   showToast(`省份「${name}」已创建 (${interior.size} 格)`);
   setStatus(`省份「${name}」: ${interior.size} 格`);
