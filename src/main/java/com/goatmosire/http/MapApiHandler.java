@@ -7,6 +7,8 @@ import com.goatmosire.service.MapGenerator;
 import com.goatmosire.service.ContinentContour;
 import com.goatmosire.service.ContourLayer;
 import com.goatmosire.service.ContourQueryEngine;
+import com.goatmosire.service.TerrainCanvas;
+import com.goatmosire.service.TerrainGeometry;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import org.slf4j.Logger;
@@ -69,6 +71,10 @@ public class MapApiHandler implements HttpHandler {
                 handleGenerate(exchange, sub, params);
             } else if (sub.contains("/contour")) {
                 handleContour(exchange, sub, params);
+            } else if (sub.endsWith("/blocks")) {
+                handleBlocks(exchange, sub, params);
+            } else if (sub.endsWith("/query-terrain")) {
+                handleQueryTerrain(exchange, sub, params);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -159,7 +165,10 @@ public class MapApiHandler implements HttpHandler {
     }
 
     // ── POST /api/map/{worldId}/generate ─────────────────
+    // NOTE: This uses the @Deprecated MapGenerator for backward compat.
+    // New worlds should start with empty canvas and add TerrainBlocks via editor.
 
+    @SuppressWarnings("deprecation")
     private void handleGenerate(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
         String worldId = sub.substring(1, sub.indexOf("/generate"));
         long seed = Long.parseLong(params.getOrDefault("seed", String.valueOf(System.currentTimeMillis())));
@@ -169,15 +178,16 @@ public class MapApiHandler implements HttpHandler {
         double landRatio = Double.parseDouble(params.getOrDefault("land", "0.35"));
         double coastRoughness = Double.parseDouble(params.getOrDefault("roughness", "0.6"));
 
-        // Generate contour only (no full map)
+        // Generate continent (deprecated path — use TerrainCanvas.addBlock for new worlds)
         var gen = new MapGenerator(seed, radius);
         gen.placeRidges(mainCount, fragmentCount);
         ContinentContour contour = gen.generateContour(landRatio);
         mapService.saveContour(worldId, contour);
 
-        // Also materialize full map for editor rendering
+        // Materialize full map
         MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, fragmentCount, landRatio, coastRoughness);
         mapService.saveFull(worldId, "n0000", map);
+        mapService.evictCanvas(worldId);
 
         sendJson(exchange, 200, Map.of(
             "ok", true, "worldId", worldId, "nodeId", "n0000",
@@ -221,6 +231,58 @@ public class MapApiHandler implements HttpHandler {
             }
             sendJson(exchange, 200, contour);
         }
+    }
+
+    // ── GET/PUT/DELETE /api/map/{worldId}/blocks ─────────
+
+    private void handleBlocks(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/blocks"));
+        String method = exchange.getRequestMethod();
+
+        switch (method) {
+            case "GET" -> {
+                // List blocks
+                TerrainCanvas canvas = mapService.getCanvas(worldId);
+                List<MapData.TerrainBlock> blocks = canvas.getBlocks();
+                sendJson(exchange, 200, Map.of("worldId", worldId, "blocks", blocks, "count", blocks.size()));
+            }
+            case "POST" -> {
+                // Add a block
+                var body = MAPPER.readTree(exchange.getRequestBody());
+                String terrain = body.get("terrain").asText();
+                List<MapData.Pt> bnd = new ArrayList<>();
+                for (var pt : body.get("boundary")) {
+                    bnd.add(new MapData.Pt(pt.get("x").asDouble(), pt.get("y").asDouble()));
+                }
+                String seed = body.has("seedKey") ? body.get("seedKey").asText() : "";
+                String blockId = mapService.addBlock(worldId, terrain, bnd, seed);
+                if (blockId != null) {
+                    sendJson(exchange, 200, Map.of("ok", true, "blockId", blockId, "terrain", terrain));
+                } else {
+                    sendJson(exchange, 200, Map.of("ok", false, "reason", "empty after overlap processing"));
+                }
+            }
+            case "DELETE" -> {
+                String blockId = params.get("id");
+                if (blockId == null) {
+                    sendError(exchange, 400, "Missing 'id' parameter");
+                    return;
+                }
+                boolean ok = mapService.removeBlock(worldId, blockId);
+                sendJson(exchange, 200, Map.of("ok", ok));
+            }
+            default -> sendError(exchange, 405, "Method not allowed: " + method);
+        }
+    }
+
+    // ── GET /api/map/{worldId}/query-terrain?q=&r= ────────
+
+    private void handleQueryTerrain(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/query-terrain"));
+        int q = Integer.parseInt(params.getOrDefault("q", "0"));
+        int r = Integer.parseInt(params.getOrDefault("r", "0"));
+        String terrain = mapService.queryTerrainBlock(worldId, q, r);
+        sendJson(exchange, 200, Map.of("q", q, "r", r, "terrain", terrain != null ? terrain : "empty"));
     }
 
     // ── POST /api/map/{worldId} (create full map) ─────────

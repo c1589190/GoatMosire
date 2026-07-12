@@ -6,7 +6,12 @@ import java.util.*;
 /**
  * Ridge-Diffusion continent generator v4 — slim ridges, wide plains.
  *
- * Grok feedback fixes:
+ * @deprecated 已弃用，请使用 {@link TerrainCanvas} 地形块系统。
+ *             启动时不再加载任何大陆生成器，改为空画布。
+ *             用户通过编辑器勾勒 TerrainBlock 来定义地形。
+ *             此类的 SimplexNoise 和 defaultTerrainTypes 仍被 ContourQueryEngine 等引用保留。
+ *
+ * <p>Grok feedback fixes (historical):
  *   - Steeper exponential decay (k=14-17) → thin mountain spines
  *   - Ridge weight reduced to 0.55 (was 0.75) → mountains don't dominate
  *   - Extra low-freq "shelf" noise → broad flat continental areas
@@ -14,6 +19,8 @@ import java.util.*;
  *   - Wider plains band (0.22-0.48) → much more flat land
  *   - Mountain threshold raised to 0.68 → only sharp peaks
  */
+@Deprecated
+@SuppressWarnings("DeprecatedIsStillUsed")
 public class MapGenerator {
 
     private final Random rng;
@@ -24,12 +31,16 @@ public class MapGenerator {
     record Ridge(List<Pt> points, double weight) {}
     record Pt(double x, double y) {}
 
+    /** @deprecated 已弃用，使用 TerrainCanvas 替代 */
+    @Deprecated
     public MapGenerator(long seed, int mapRadius) {
         this.rng = new Random(seed);
         this.radius = mapRadius;
         this.noise = new SimplexNoise(seed);
     }
 
+    /** @deprecated 已弃用，使用 TerrainCanvas.addBlock 替代 */
+    @Deprecated
     public void placeRidges(int mainCount, int fragmentCount) {
         ridges = new ArrayList<>();
         double baseAngle = rng.nextDouble() * 2 * Math.PI;
@@ -66,7 +77,8 @@ public class MapGenerator {
     //  Height Field v4 — Slim Ridges + Wide Plains
     // ═══════════════════════════════════════════════════════
 
-    /** Generate compact continent contour (new preferred API) */
+    /** @deprecated 已弃用，使用 TerrainCanvas 替代。Generate compact continent contour (historical). */
+    @Deprecated
     public ContinentContour generateContour(double landRatio) {
         double baseSeaLevel = 0.22 + (1.0 - landRatio) * 0.04;
         double shelfFreq = 1.8 / radius;
@@ -88,7 +100,8 @@ public class MapGenerator {
         );
     }
 
-    /** Materialize full map from contour (backward compatible) */
+    /** @deprecated 已弃用，使用 TerrainCanvas.addBlock 替代。Materialize full map from contour (historical). */
+    @Deprecated
     public MapData generate(double landRatio) {
         ContinentContour contour = generateContour(landRatio);
         ContourQueryEngine engine = new ContourQueryEngine(contour);
@@ -240,6 +253,8 @@ public class MapGenerator {
         return tt;
     }
 
+    /** @deprecated 已弃用，使用 TerrainCanvas.addBlock 替代。Static convenience — do not use for new worlds. */
+    @Deprecated
     public static MapData generate(String worldId, long seed, int mapRadius,
                                    int mainRidges, int fragments,
                                    double landRatio, double coastRoughness) {

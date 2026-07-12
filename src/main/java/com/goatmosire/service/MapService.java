@@ -28,6 +28,7 @@ public class MapService {
             return size() > MAX_CACHE_SIZE;
         }
     };
+    private final ConcurrentHashMap<String, TerrainCanvas> canvases = new ConcurrentHashMap<>();
 
     public MapService(Path worldsDir) {
         this.worldsDir = worldsDir;
@@ -57,6 +58,89 @@ public class MapService {
     /** Get history for a world + node. */
     public List<MapResolver.HistoryEntry> history(String worldId, String nodeId) {
         return MapResolver.history(worldsDir, worldId, nodeId);
+    }
+
+    // ── TerrainCanvas (block system) ────────────────────────
+
+    /** Get or lazily create the TerrainCanvas for a world. */
+    public TerrainCanvas getCanvas(String worldId) {
+        return canvases.computeIfAbsent(worldId, k -> {
+            // Try to load existing blocks from the stored map
+            MapData map = resolveActive(worldId);
+            TerrainCanvas canvas = new TerrainCanvas();
+            if (map != null && map.terrainBlocks() != null && !map.terrainBlocks().isEmpty()) {
+                canvas.setBlocks(map.terrainBlocks());
+                log.info("Loaded {} blocks for world {}", canvas.size(), worldId);
+            } else {
+                log.info("Empty canvas for world {}", worldId);
+            }
+            return canvas;
+        });
+    }
+
+    /** Query terrain for a hex using TerrainCanvas (primary), falling back to hexes. */
+    public String queryTerrainBlock(String worldId, int q, int r) {
+        TerrainCanvas canvas = canvases.get(worldId);
+        if (canvas != null) {
+            String terrain = canvas.queryHex(q, r);
+            if (terrain != null) return terrain;
+        }
+        // Fallback 1: load stored terrainBlocks into canvas and query
+        MapData map = resolveActive(worldId);
+        if (map != null && map.terrainBlocks() != null && !map.terrainBlocks().isEmpty()) {
+            canvas = new TerrainCanvas();
+            canvas.setBlocks(map.terrainBlocks());
+            canvases.put(worldId, canvas);
+            String terrain = canvas.queryHex(q, r);
+            if (terrain != null) return terrain;
+        }
+        // Fallback 2: query hex grid
+        if (map != null) {
+            MapData.HexCell cell = map.hexes().get(MapData.hexKey(q, r));
+            if (cell != null) return cell.terrain();
+        }
+        return null;
+    }
+
+    /** Add a terrain block to a world's canvas and persist. */
+    public String addBlock(String worldId, String terrain, List<MapData.Pt> boundary, String seedKey) {
+        TerrainCanvas canvas = getCanvas(worldId);
+        String blockId = canvas.addBlock(terrain, boundary, seedKey);
+        if (blockId != null) {
+            persistBlocks(worldId, canvas);
+        }
+        return blockId;
+    }
+
+    /** Remove a terrain block by id and persist. */
+    public boolean removeBlock(String worldId, String blockId) {
+        TerrainCanvas canvas = canvases.get(worldId);
+        if (canvas == null) return false;
+        boolean ok = canvas.removeBlock(blockId);
+        if (ok) persistBlocks(worldId, canvas);
+        return ok;
+    }
+
+    public void evictCanvas(String worldId) {
+        canvases.remove(worldId);
+    }
+
+    /** Write terrain blocks back to MapData and persist (does NOT evict canvas). */
+    private void persistBlocks(String worldId, TerrainCanvas canvas) {
+        List<MapData.TerrainBlock> blocks = canvas.getBlocks();
+        MapData map = resolveActive(worldId);
+        if (map == null || map.hexes().isEmpty()) {
+            map = MapData.empty();
+        }
+        MapData updated = new MapData(
+            map.gridSize(), map.hexOrientation(), map.hexes(),
+            blocks, map.provinces(), map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes()
+        );
+        // Save directly to disk without evicting the canvas cache
+        MapStore.saveFull(worldsDir, worldId, "n0000", updated);
+        // Update the in-memory MapData cache
+        cache.put(cacheKey(worldId, "n0000"), updated);
     }
 
     // ── Mutation ──────────────────────────────────────────
@@ -276,6 +360,7 @@ public class MapService {
         // Also evict any descendant nodes' cached resolved map (they inherit from this)
         String prefix = worldId + "/";
         cache.keySet().removeIf(k -> k.startsWith(prefix));
+        canvases.remove(worldId);
     }
 
     private static String cacheKey(String worldId, String nodeId) {

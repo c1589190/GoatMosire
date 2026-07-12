@@ -177,7 +177,6 @@ function getTerrainColor(name) {
 
 // ── Rendering ───────────────────────────────────────────
 function render() {
-  if (!mapData) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   ctx.translate(offX, offY);
@@ -192,6 +191,25 @@ function render() {
 
   const entries = Object.entries(mapData.hexes || {});
   const hexCount = entries.length;
+
+  if (hexCount === 0 && (!mapData.terrainBlocks || mapData.terrainBlocks.length === 0)) {
+    // Empty canvas — draw center crosshair to indicate empty state
+    ctx.strokeStyle = '#ffffff22';
+    ctx.lineWidth = 1 / zoom;
+    // Horizontal line
+    ctx.beginPath(); ctx.moveTo(-200, 0); ctx.lineTo(200, 0); ctx.stroke();
+    // Vertical line
+    ctx.beginPath(); ctx.moveTo(0, -200); ctx.lineTo(0, 200); ctx.stroke();
+    // Circle
+    ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI * 2); ctx.stroke();
+    // Text
+    ctx.restore();
+    ctx.fillStyle = '#ffffff44';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('空画布 — 右键拖动圈出地形，选地形填充', canvas.width/2, canvas.height/2 + 70);
+    return;
+  }
   let drawn = 0;
 
   // Batch by color to reduce fillStyle changes
@@ -293,7 +311,6 @@ function finishTerrainLasso() {
   if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
 
   // Compute hex set for new block
-  const seedKey = `${lassoPts[0]?.q || 0}_${lassoPts[0]?.r || 0}`;
   const newHexSet = hexSetFromPolygon(boundary, mapData.gridSize || 80, seedKey);
   if (newHexSet.size === 0) { render(); showToast('空区域，跳过'); return; }
 
@@ -349,7 +366,6 @@ function finishTerrainLasso() {
     const pts = [];
     for (const key of hexSet) {
       const [q, r] = key.split('_').map(Number);
-      // Check if this hex is on boundary (has neighbor NOT in set)
       let isEdge = false;
       for (const [dq, dr] of DIR_VECTORS) {
         if (!hexSet.has(`${q+dq}_${r+dr}`)) { isEdge = true; break; }
@@ -359,13 +375,47 @@ function finishTerrainLasso() {
         pts.push({x, y});
       }
     }
-    // Simple convex hull (approximate) — sort by angle around centroid
     if (pts.length < 3) return pts;
+    // Sort by angle around centroid
     const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
     pts.sort((a,b) => Math.atan2(a.y-cy, a.x-cx) - Math.atan2(b.y-cy, b.x-cx));
     pts.push({...pts[0]});
-    return pts;
+    // RDP simplify — remove interior/redundant points
+    return simplifyBoundary(pts, GRID * 2);
   }
+}
+
+// ── RDP boundary simplification ──
+function simplifyBoundary(pts, epsilon) {
+  if (pts.length < 4) return pts.slice();
+  const result = rdp(pts, 0, pts.length - 1, epsilon);
+  return result;
+}
+
+function rdp(pts, start, end, eps) {
+  let maxDist = 0, maxIdx = start;
+  const a = pts[start], b = pts[end];
+  for (let i = start + 1; i < end; i++) {
+    const d = perpDist(pts[i], a, b);
+    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  }
+  if (maxDist > eps) {
+    const left = rdp(pts, start, maxIdx, eps);
+    const right = rdp(pts, maxIdx, end, eps);
+    left.pop();
+    return left.concat(right);
+  }
+  return [{x:a.x, y:a.y}, {x:b.x, y:b.y}];
+}
+
+function perpDist(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001)
+    return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+  t = Math.max(0, Math.min(1, t));
+  const px = a.x + t * dx, py = a.y + t * dy;
+  return Math.hypot(p.x - px, p.y - py);
 }
 
 function renderLassoPreview() {
@@ -677,10 +727,9 @@ function hexSetFromPolygon(boundary, mapRadius, seedHexArg) {
   if (fh) seeds.push(`${fh.q}_${fh.r}`);
 
   for (const seedKey of seeds) {
-    if (pointInPolygon(
-      (()=>{const [q,r]=seedKey.split('_').map(Number);return q+r*0.5;})(),
-      (()=>{const [q,r]=seedKey.split('_').map(Number);return r*0.866;})()
-      , boundary)) {
+    const [sq, sr] = seedKey.split('_').map(Number);
+    const sp = hexToPixel(sq, sr);
+    if (pointInPolygon(sp.x, sp.y, boundary)) {
       // Found valid seed
       const stack = [seedKey];
       while (stack.length) {
@@ -688,8 +737,8 @@ function hexSetFromPolygon(boundary, mapRadius, seedHexArg) {
         if (visited.has(key)) continue;
         visited.add(key);
         const [q, r] = key.split('_').map(Number);
-        const px = q + r * 0.5, py = r * 0.866;
-        if (!pointInPolygon(px, py, boundary)) continue;
+        const hp = hexToPixel(q, r);
+        if (!pointInPolygon(hp.x, hp.y, boundary)) continue;
         hexSet.add(key);
         for (const [dq, dr] of DIR_VECTORS) {
           const nk = `${q+dq}_${r+dr}`;
@@ -1014,11 +1063,20 @@ function updateProvDesc(name, val) {
 async function init() {
   try { MapAPI.init(); } catch(e) { console.warn(e); }
   if (!MapAPI.worldId || MapAPI.worldId === 'default') MapAPI.worldId = 'logdemo';
+
+  // Build terrain buttons and canvas immediately
   try { buildTerrainButtons(DEFAULT_TERRAINS); } catch(e) {}
   window.addEventListener('resize', resizeCanvas);
   try { resizeCanvas(); } catch(e) {}
+
+  // Start with empty canvas (don't wait for fetch)
+  mapData = {hexes:{}, terrainBlocks:[], provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:80, hexOrientation:false, rivers:[], roads:[]};
+  setStatus('空画布就绪 — 右键拖动圈地形');
+
+  // Populate world selector with known fallback
   document.getElementById('worldSelect').innerHTML = '<option value="logdemo">logdemo</option>';
 
+  // Try loading worlds in background
   try {
     const r = await fetch('/api/map');
     if (r.ok) {
@@ -1034,7 +1092,8 @@ async function init() {
     await loadNodes();
     await loadMap();
   } catch(e) {
-    try { await loadMap(); } catch(e2) { setStatus('加载失败'); }
+    console.warn('Background load failed, using empty canvas:', e);
+    try { fitView(); } catch(e2) {}
   }
 }
 
