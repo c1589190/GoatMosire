@@ -94,8 +94,8 @@ public class GoatMosireApp {
             }
         }
 
-        if (httpOnly) System.setProperty("goatmosire.mcpOnly", "true");
-        if (mcpOnly) System.setProperty("goatmosire.httpOnly", "true");
+        if (httpOnly) System.setProperty("goatmosire.httpOnly", "true");
+        if (mcpOnly) System.setProperty("goatmosire.mcpOnly", "true");
 
         return GoatMosireConfig.load();
     }
