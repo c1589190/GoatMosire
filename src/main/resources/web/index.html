@@ -622,33 +622,32 @@ let dragPoint = null;
 
 
 canvas.addEventListener('mousedown', e => {
-  // Middle button or shift+left: pan
-  if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
-    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY}; return;
-  }
-  // Right click or ctrl+left: lasso mode
-  if (e.button === 2 || (e.button === 0 && e.ctrlKey)) {
+  // Right click: paint or province lasso
+  if (e.button === 2) {
     e.preventDefault();
-    lassoing = true;
-    const h = getHexAtEvent(e);
-    if (h && tool === 'terrain_lasso') applyTerrainLasso(h.q, h.r);
-    return;
-  }
-  // Left click: pan start
-  if (e.button === 0) {
-    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
+    if (tool === 'province') {
+      provinceLasso = [];
+      const h = getHexAtEvent(e);
+      if (h) addProvincePoint(h.q, h.r);
+      return;
+    }
     mouseDown = true;
     clickHex = getHexAtEvent(e);
-    // Check boundary dot dragging for province tool
-    if (selectedProvince && canvas._boundaryHexes && tool === 'province') {
-      const r = canvas.getBoundingClientRect();
-      const mx = (e.clientX - r.left - offX) / zoom;
-      const my = (e.clientY - r.top - offY) / zoom;
-      for (const [key, hex] of Object.entries(canvas._boundaryHexes || {})) {
-        const dx = mx - hex.x, dy = my - hex.y;
-        if (dx*dx + dy*dy < 36) { dragPoint = {q: hex.q, r: hex.r}; break; }
+    if (clickHex) applyTool(clickHex.q, clickHex.r);
+    return;
+  }
+  // Left click: pan or province boundary drag
+  if (e.button === 0) {
+    if (tool === 'province' && selectedProvince && canvas._boundaryHexes) {
+      const rc = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rc.left - offX) / zoom;
+      const my = (e.clientY - rc.top - offY) / zoom;
+      for (const bp of canvas._boundaryHexes) {
+        const {x:bx, y:by} = hexToPixel(bp.q, bp.r);
+        if (Math.hypot(mx-bx, my-by) < 8/zoom) { dragPoint = bp; return; }
       }
     }
+    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
   }
 });
 
@@ -662,11 +661,9 @@ canvas.addEventListener('mousemove', e => {
     render(); return;
   }
 
-  if (lassoing && tool === 'terrain_lasso') {
+  if (tool === 'province' && provinceLasso.length > 0) {
     const h = getHexAtEvent(e);
-    if (h && (!lassoPts.length || h.q !== lassoPts[lassoPts.length-1].q || h.r !== lassoPts[lassoPts.length-1].r)) {
-      applyTerrainLasso(h.q, h.r);
-    }
+    if (h) addProvincePoint(h.q, h.r);
     return;
   }
 
@@ -699,19 +696,13 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mouseup', e => {
-  if (lassoing) {
-    lassoing = false;
-    if (lassoPts.length >= 2) {
-      // Auto-close: connect last point to start
-      const first = lassoPts[0], last = lassoPts[lassoPts.length-1];
-      if (first.q !== last.q || first.r !== last.r) {
-        const line = hexLine(last.q, last.r, first.q, first.r);
-        for (let i = 1; i < line.length; i++) lassoPts.push(line[i]);
-      }
-      finishTerrainLasso();
-    }
+  // Province lasso finish
+  if (tool === 'province' && provinceLasso.length > 2) {
+    finishProvinceLasso();
+    provinceLasso = [];
     return;
   }
+  provinceLasso = [];
   if (dragPoint) { dragPoint = null; render(); return; }
   if (clickHex && tool === 'river') {
     addRiverWaypoint(clickHex.q, clickHex.r);
