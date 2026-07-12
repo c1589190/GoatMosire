@@ -421,168 +421,37 @@ async function generateWorld() {
   }
 }
 
-// ── Province Tool ───────────────────────────────────────
-let provincePts = [];
-let selectedProvince = null;
-
-function showProvinceList() {
-  const panel = document.getElementById('infoPanel');
-  const title = document.getElementById('infoTitle');
-  const body = document.getElementById('infoBody');
-  const provs = mapData?.provinces || {};
-  const names = Object.keys(provs);
-  const mapTotal = Object.keys(mapData?.hexes || {}).length;
-
-  title.textContent = `🏛 省份 (${names.length})`;
-  if (names.length === 0) {
-    body.innerHTML = '<div style="color:var(--dim);font-size:11px">点击地图圈边界，再点起点闭合创建省份</div>';
-  } else {
-    body.innerHTML = names.map(name => {
-      const p = provs[name];
-      const sel = selectedProvince === name ? 'border:2px solid var(--accent);' : '';
-      const ratio = (p.hexes||[]).length / Math.max(mapTotal, 1);
-      const warn = ratio > 0.8 ? ' ⚠️过大' : '';
-      return `<div style="margin-bottom:6px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${sel}"
-        onclick="selectProvince('${name}')">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color||'#888'};margin-right:6px"></span>
-        <b>${name}</b> <span style="color:${ratio>0.8?'orange':'var(--dim)'};font-size:10px">${(p.hexes||[]).length}格${warn}</span>
-        <button onclick="event.stopPropagation();deleteProvince('${name}')" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="删除">✕</button>
-      </div>`;
-    }).join('');
-  }
-  panel.style.display = 'block';
-}
-
-function selectProvince(name) {
-  selectedProvince = name;
-  showProvinceList();
-  render();
-  renderProvinceHighlight();
-}
-
-function deleteProvince(name) {
-  if (confirm(`删除省份「${name}」？`)) {
-    delete mapData.provinces[name];
-    if (selectedProvince === name) selectedProvince = null;
-    showProvinceList();
-    render();
-  }
-}
-
-function renderProvinceHighlight() {
-  if (!selectedProvince || !mapData?.provinces) return;
-  const p = mapData.provinces[selectedProvince];
-  if (!p?.hexes?.length) return;
-  ctx.save();
-  ctx.translate(offX, offY);
-  ctx.scale(zoom, zoom);
-
-  const allHexes = new Set(p.hexes);
-
-  // Semi-transparent fill for entire province
-  ctx.fillStyle = (p.color || '#FF0000') + '33';
-  for (const key of p.hexes) {
-    const [q, r] = key.split('_').map(Number);
-    const {x, y} = hexToPixel(q, r);
-    const corners = hexCorners(x, y, GRID - 1);
-    ctx.beginPath();
-    ctx.moveTo(corners[0][0], corners[0][1]);
-    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Filled dots at boundary hexes (province hexes touching non-province)
-  const boundaryHexes = [];
-  for (const key of p.hexes) {
-    const [q, r] = key.split('_').map(Number);
-    for (const [dq, dr] of DIR_VECTORS) {
-      if (!allHexes.has(`${q+dq}_${r+dr}`)) { boundaryHexes.push({q, r}); break; }
-    }
-  }
-
-  ctx.fillStyle = p.color || '#FF0000';
-  for (const {q, r} of boundaryHexes) {
-    const {x, y} = hexToPixel(q, r);
-    ctx.beginPath();
-    ctx.arc(x, y, 4 / zoom, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  canvas._boundaryHexes = boundaryHexes;
-  ctx.restore();
-}
-
-// ── Province boundary dragging ──────────────────────────
-let dragPoint = null;
-
-canvas.addEventListener('mousedown', e => {
-  // Left click: pan
-  if (e.button === 0) {
-    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
-    e.preventDefault();
-    return;
-  }
-  // Right click: paint
-  if (e.button === 2) {
-    e.preventDefault();
-    mouseDown = true;
-    clickHex = getHexAtEvent(e);
-    if (clickHex) applyTool(clickHex.q, clickHex.r);
-    return;
-  }
-});
-
-canvas.addEventListener('contextmenu', e => e.preventDefault());
-
-function hexLine(aq, ar, bq, br) {
-  const dist = Math.max(Math.abs(bq - aq), Math.abs(br - ar), Math.abs((-bq-br) - (-aq-ar)));
-  const pts = [];
-  for (let i = 0; i <= dist; i++) {
-    const t = dist === 0 ? 0 : i / dist;
-    const pq = aq + (bq - aq) * t, pr = ar + (br - ar) * t;
-    const hq = Math.round(pq), hr = Math.round(pr);
-    // Re-round to valid axial coords
-    const hs = -hq - hr;
-    const fq = pq - hq, fr = pr - hr, fs = (-pq-pr) - hs;
-    let rq = hq, rr = hr;
-    if (Math.abs(fq) > Math.abs(fr) && Math.abs(fq) > Math.abs(fs)) rq = -hr - hs;
-    else if (Math.abs(fr) > Math.abs(fs)) rr = -hq - hs;
-    if (pts.length === 0 || pts[pts.length-1].q !== rq || pts[pts.length-1].r !== rr) {
-      pts.push({q: rq, r: rr});
-    }
-  }
-  return pts;
-}
+// ── Province Tool ─────────────────────────────────────────
+// Right-drag lasso to draw province boundary, release to create.
+let provinceLasso = [];   // {q, r}[] — lasso points for province tool
 
 function addProvincePoint(q, r) {
-  // Click start point again → close loop & create province
-  if (provincePts.length > 2 && q === provincePts[0].q && r === provincePts[0].r) {
-    finishProvince();
-    return;
-  }
-  // Auto-connect from last point
-  if (provincePts.length > 0) {
-    const last = provincePts[provincePts.length - 1];
+  // Called from mousemove during province-lasso (right-drag)
+  if (provinceLasso.length > 0) {
+    const last = provinceLasso[provinceLasso.length - 1];
+    if (last.q === q && last.r === r) return; // duplicate
     const line = hexLine(last.q, last.r, q, r);
-    for (let i = 1; i < line.length; i++) provincePts.push(line[i]);
+    for (let i = 1; i < line.length; i++) provinceLasso.push(line[i]);
   } else {
-    provincePts.push({q, r});
+    provinceLasso.push({q, r});
   }
-  setStatus(`省份边界: ${provincePts.length} 点 — 点击起点闭合`);
+  setStatus(`省份边界: ${provinceLasso.length} 点 — 松手创建`);
   renderProvincePreview();
 }
 
-function finishProvince() {
-  const boundSet = new Set(provincePts.map(p => `${p.q}_${p.r}`));
+function finishProvinceLasso() {
+  if (provinceLasso.length < 3) { provinceLasso = []; render(); return; }
 
-  // Find seed: use the average of boundary points as center, find nearest non-boundary hex
+  const boundSet = new Set(provinceLasso.map(p => `${p.q}_${p.r}`));
+  provinceLasso = [];
+
+  // Find seed: centroid of boundary hexes
   let sumQ = 0, sumR = 0;
-  for (const p of provincePts) { sumQ += p.q; sumR += p.r; }
-  const cq = Math.round(sumQ / provincePts.length);
-  const cr = Math.round(sumR / provincePts.length);
+  for (const k of boundSet) { const [q,r] = k.split('_').map(Number); sumQ += q; sumR += r; }
+  const cq = Math.round(sumQ / boundSet.size);
+  const cr = Math.round(sumR / boundSet.size);
 
-  // Spiral from center to find a non-boundary hex
+  // Spiral from center to find non-boundary hex
   let seed = null;
   for (let r = 0; r < 200 && !seed; r++) {
     if (r === 0) {
@@ -590,7 +459,7 @@ function finishProvince() {
       if (!boundSet.has(k) && mapData.hexes[k]) { seed = {q: cq, r: cr}; break; }
       continue;
     }
-    let sq = cq + r * DIR_VECTORS[4][0]; // NW of ring
+    let sq = cq + r * DIR_VECTORS[4][0];
     let sr = cr + r * DIR_VECTORS[4][1];
     for (let d = 0; d < 6 && !seed; d++) {
       for (let s = 0; s < r; s++) {
@@ -600,9 +469,9 @@ function finishProvince() {
       }
     }
   }
-  if (!seed) { setStatus('省份: 无法找到内部区域'); provincePts = []; return; }
+  if (!seed) { setStatus('省份: 无法找到内部区域'); render(); return; }
 
-  // Flood fill interior (bounded)
+  // Flood fill interior
   const interior = new Set();
   const queue = [seed];
   const visited = new Set();
@@ -622,13 +491,11 @@ function finishProvince() {
       }
     }
   }
+  if (count >= MAX_FILL) { setStatus(`省份填充超限`); render(); return; }
 
-  if (count >= MAX_FILL) { setStatus(`省份: 填充超限 (${MAX_FILL}), 边界可能不闭合`); provincePts = []; return; }
-
-  // Create province — include boundary hexes + interior
+  // Create province — include boundary + interior (overlap allowed)
   const name = prompt('省份名称:', `省${Object.keys(mapData.provinces||{}).length + 1}`);
-  if (!name) { provincePts = []; render(); setStatus('省份: 已取消'); return; }
-  const mapSize = Object.keys(mapData.hexes).length;
+  if (!name) { render(); setStatus('省份: 已取消'); return; }
   if (!mapData.provinces) mapData.provinces = {};
   const allHexes = [...interior, ...boundSet];
   mapData.provinces[name] = {
@@ -636,166 +503,124 @@ function finishProvince() {
     color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'),
     tag: '', description: ''
   };
-  provincePts = [];
   selectedProvince = name;
-  setTool('province');
   showProvinceList();
   render();
   showToast(`省份「${name}」已创建 (${allHexes.length} 格)`);
-  setStatus(`省份「${name}」: ${allHexes.length} 格, 地图共 ${mapSize} 格`);
 }
 
-function renderProvincePreview() {
-  // Draw a temporary outline for the province boundary
+// Province boundary editing: drag points to reshape
+function computeBoundaryHexes(provinceName) {
+  const p = mapData?.provinces?.[provinceName];
+  if (!p?.hexes) return [];
+  const hexSet = new Set(p.hexes);
+  const boundary = [];
+  for (const key of p.hexes) {
+    const [q, r] = key.split('_').map(Number);
+    for (const [dq, dr] of DIR_VECTORS) {
+      if (!hexSet.has(`${q+dq}_${r+dr}`)) { boundary.push({q,r,key}); break; }
+    }
+  }
+  return boundary;
+}
+
+function addProvinceByName() {
+  const name = prompt('新建省份名称:')?.trim();
+  if (!name) return;
+  if (mapData.provinces[name]) { showToast('名称已存在'); return; }
+  if (!mapData.provinces) mapData.provinces = {};
+  mapData.provinces[name] = {
+    hexes: [], color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'),
+    tag: '', description: ''
+  };
+  selectedProvince = name;
+  showProvinceList();
+}
+
+function addHexToProvince(q, r) {
+  if (!selectedProvince || !mapData?.provinces?.[selectedProvince]) return;
+  const p = mapData.provinces[selectedProvince];
+  const key = `${q}_${r}`;
+  if (!mapData.hexes[key]) return;
+  if (!p.hexes.includes(key)) { p.hexes.push(key); render(); showToast('已添加'); }
+  else { p.hexes = p.hexes.filter(k => k !== key); render(); showToast('已移除'); }
+}
+
+// ── Province List ───────────────────────────────────────
+
+function showProvinceList() {
+  const list = document.getElementById('provinceList');
+  if (!list) return;
+  const names = Object.keys(mapData?.provinces || {});
+  if (names.length === 0) { list.innerHTML = '<div style="color:#666;font-size:11px;padding:4px;">无省份</div>'; return; }
+  list.innerHTML = names.map(name => {
+    const p = mapData.provinces[name];
+    const sel = name === selectedProvince ? ' style="background:#333;color:#fff"' : '';
+    return `<div class="province-item"${sel} onclick="selectProvince('${name}')" ondblclick="deleteProvince('${name}')">${name} <span style="color:${p.color};">■</span> ${p.hexes.length}格</div>`;
+  }).join('');
+}
+
+function selectProvince(name) {
+  selectedProvince = name;
+  showProvinceList();
   render();
+}
+
+function deleteProvince(name) {
+  if (confirm(`删除省份「${name}」?`)) {
+    delete mapData.provinces[name];
+    if (selectedProvince === name) selectedProvince = null;
+    showProvinceList();
+    render();
+  }
+}
+
+function renderProvinceHighlight() {
+  if (!selectedProvince || !mapData?.provinces) return;
+  const p = mapData.provinces[selectedProvince];
+  if (!p?.hexes?.length) return;
   ctx.save();
   ctx.translate(offX, offY);
   ctx.scale(zoom, zoom);
-  ctx.strokeStyle = '#FFD700';
-  ctx.lineWidth = 2 / zoom;
-  ctx.setLineDash([4/zoom, 4/zoom]);
+
+  // Fill
+  ctx.fillStyle = p.color + '18';
   ctx.beginPath();
-  for (let i = 0; i < provincePts.length; i++) {
-    const {x, y} = hexToPixel(provincePts[i].q, provincePts[i].r);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  for (const key of p.hexes) {
+    const [q, r] = key.split('_').map(Number);
+    const {x, y} = hexToPixel(q, r);
+    const corners = hexCorners(x, y, GRID - 1);
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
   }
-  if (provincePts.length > 2) ctx.closePath();
-  ctx.stroke();
-  ctx.setLineDash([]);
+  ctx.fill();
+
+  // Boundary dots (draggable)
+  const boundary = computeBoundaryHexes(selectedProvince);
+  canvas._boundaryHexes = boundary;
+  ctx.fillStyle = p.color;
+  for (const b of boundary) {
+    const {x, y} = hexToPixel(b.q, b.r);
+    ctx.beginPath(); ctx.arc(x, y, 4/zoom, 0, Math.PI*2); ctx.fill();
+  }
   ctx.restore();
 }
 
-// ── Interaction ─────────────────────────────────────────
-let clickHex = null;
-
-// (mousedown handler defined above in Province boundary dragging section)
-
-canvas.addEventListener('mousemove', e => {
-  if (panStart) {
-    offX=panOff.x+(e.clientX-panStart.x); offY=panOff.y+(e.clientY-panStart.y);
-    render(); return;
+function renderProvincePreview() {
+  if (provinceLasso.length < 2) return;
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  ctx.strokeStyle = '#ff00ff';
+  ctx.lineWidth = 2/zoom;
+  ctx.beginPath();
+  for (const p of provinceLasso) {
+    const {x, y} = hexToPixel(p.q, p.r);
+    ctx.lineTo(x, y);
   }
-
-  // Handle province boundary dragging
-  if (dragPoint) {
-    const h = getHexAtEvent(e);
-    if (h && (h.q !== dragPoint.q || h.r !== dragPoint.r)) {
-      const newKey = `${h.q}_${h.r}`;
-      const oldKey = `${dragPoint.q}_${dragPoint.r}`;
-      const p = mapData.provinces[selectedProvince];
-      if (p?.hexes) {
-        const inProvince = p.hexes.includes(newKey);
-        if (!inProvince && mapData.hexes[newKey]) {
-          // Dragging outward → add new hex
-          p.hexes.push(newKey);
-        } else if (inProvince && newKey !== oldKey) {
-          // Dragging inward → remove old boundary hex
-          p.hexes = p.hexes.filter(k => k !== oldKey);
-        }
-        dragPoint = {q: h.q, r: h.r};
-        render();
-      }
-    }
-    return;
-  }
-
-  const h=getHexAtEvent(e);
-  if (h) {
-    tooltip.style.display='block';
-    tooltip.style.left=(e.clientX+15)+'px';
-    tooltip.style.top=(e.clientY-20)+'px';
-    const cell=(mapData?.hexes||{})[`${h.q}_${h.r}`];
-    const tn=cell?.terrain||'empty';
-    const tt=terrainTypes[tn];
-    tooltip.textContent=`(${h.q},${h.r}) ${tn}`+(tt?` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}`:'');
-    if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
-    if (mouseDown && tool !== 'river' && tool !== 'province') applyTool(h.q, h.r);
-  } else tooltip.style.display='none';
-});
-
-canvas.addEventListener('mouseup', () => {
-  if (dragPoint) {
-    dragPoint = null;
-    render();
-    return;
-  }
-  if (clickHex && tool === 'river') {
-    addRiverWaypoint(clickHex.q, clickHex.r);
-  } else if (clickHex && tool === 'province') {
-    addProvincePoint(clickHex.q, clickHex.r);
-  } else if (clickHex && mouseDown) {
-    showHexInfo(clickHex.q, clickHex.r);
-  }
-  mouseDown=false; panStart=null; clickHex=null;
-});
-canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;tooltip.style.display='none';});
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  const f=e.deltaY<0?1.1:0.9;
-  const nz=Math.max(0.1,Math.min(5,zoom*f));
-  offX=e.offsetX-(e.offsetX-offX)*(nz/zoom);
-  offY=e.offsetY-(e.offsetY-offY)*(nz/zoom);
-  zoom=nz; render();
-}, {passive:false});
-
-function getHexAtEvent(e) {
-  const r=canvas.getBoundingClientRect();
-  return pixelToHex((e.clientX-r.left-offX)/zoom, (e.clientY-r.top-offY)/zoom);
-}
-
-// ── Info Panel ──────────────────────────────────────────
-function showHexInfo(q, r) {
-  const key = `${q}_${r}`;
-  const cell = (mapData?.hexes || {})[key];
-  const panel = document.getElementById('infoPanel');
-  const title = document.getElementById('infoTitle');
-  const body = document.getElementById('infoBody');
-
-  if (!cell) { panel.style.display = 'none'; return; }
-
-  // Find province this hex belongs to
-  let provName = '', provTag = '', provDesc = '';
-  for (const [pname, prov] of Object.entries(mapData.provinces || {})) {
-    if (prov.hexes?.includes(key)) { provName = pname; provTag = prov.tag || ''; provDesc = prov.description || ''; break; }
-  }
-
-  const tt = terrainTypes[cell.terrain] || {};
-  title.textContent = `(${q}, ${r}) — ${cell.terrain}`;
-  body.innerHTML = `
-    <div style="margin-bottom:8px">
-      <label style="color:var(--dim);font-size:10px">描述</label>
-      <textarea id="hexDesc" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;resize:vertical;min-height:40px"
-        onchange="updateHexDesc(${q},${r},this.value)">${cell.description||''}</textarea>
-    </div>
-    ${provName ? `
-    <div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:4px">
-      <div style="font-weight:700;color:var(--accent);margin-bottom:4px">${provName}</div>
-      <label style="color:var(--dim);font-size:10px">GSim Tag</label>
-      <input id="provTag" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"
-        value="${provTag}" onchange="updateProvTag('${provName}',this.value)">
-      <label style="color:var(--dim);font-size:10px;margin-top:4px;display:block">省份描述</label>
-      <textarea id="provDesc" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;resize:vertical;min-height:30px"
-        onchange="updateProvDesc('${provName}',this.value)">${provDesc}</textarea>
-    </div>` : ''}
-    <div style="font-size:10px;color:var(--dim)">
-      🍖${tt.food||0} 💰${tt.gold||0} 🪨${tt.stone||0} 👣${tt.moveCost||0}
-    </div>`;
-  panel.style.display = 'block';
-}
-
-function updateHexDesc(q, r, val) {
-  const key = `${q}_${r}`;
-  if (!mapData.hexes[key]) mapData.hexes[key] = {color:'#808080',terrain:'unknown'};
-  mapData.hexes[key].description = val;
-}
-
-function updateProvTag(name, val) {
-  if (mapData.provinces[name]) mapData.provinces[name].tag = val;
-}
-
-function updateProvDesc(name, val) {
-  if (mapData.provinces[name]) mapData.provinces[name].description = val;
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ── API ─────────────────────────────────────────────────
