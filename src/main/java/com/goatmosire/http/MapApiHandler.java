@@ -6,6 +6,7 @@ import com.goatmosire.service.MapService;
 import com.goatmosire.service.MapGenerator;
 import com.goatmosire.service.ContinentContour;
 import com.goatmosire.service.ContourLayer;
+import com.goatmosire.service.LassoProcessor;
 import com.goatmosire.service.ContourQueryEngine;
 import com.goatmosire.service.TerrainCanvas;
 import com.goatmosire.service.TerrainGeometry;
@@ -254,8 +255,18 @@ public class MapApiHandler implements HttpHandler {
                 String terrain = body.get("terrain").asText();
                 String seed = body.has("seedKey") ? body.get("seedKey").asText() : "";
 
-                // Accept hexKeys directly (from client-side flood fill)
-                if (body.has("hexKeys")) {
+                // Accept lassoKeys (raw lasso hex keys) → backend fills
+                if (body.has("lassoKeys")) {
+                    List<String> rawKeys = new ArrayList<>();
+                    for (var node : body.get("lassoKeys")) rawKeys.add(node.asText());
+                    Set<String> hexSet = LassoProcessor.fill(rawKeys);
+                    if (hexSet.isEmpty()) {
+                        sendJson(exchange, 200, Map.of("ok", false, "reason", "lasso fill returned empty"));
+                    } else {
+                        String blockId = mapService.addBlockFromHexSet(worldId, terrain, hexSet, seed);
+                        sendJson(exchange, 200, Map.of("ok", blockId != null, "blockId", blockId != null ? blockId : "", "terrain", terrain));
+                    }
+                } else if (body.has("hexKeys")) {
                     Set<String> hexSet = new HashSet<>();
                     for (var node : body.get("hexKeys")) hexSet.add(node.asText());
                     String blockId = mapService.addBlockFromHexSet(worldId, terrain, hexSet, seed);

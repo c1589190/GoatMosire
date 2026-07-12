@@ -327,56 +327,14 @@ function finishTerrainLasso() {
   const rawKeys = lassoPts.map(p => `${p.q}_${p.r}`);
   lassoPts = [];
 
-  // 1. Build boundary set from lasso hexes (with bridging lines)
-  const boundSet = new Set(rawKeys);
-  // Bridge gaps between consecutive lasso hexes
-  for (let i = 0; i < rawKeys.length; i++) {
-    const j = (i + 1) % rawKeys.length;
-    const [aq, ar] = rawKeys[i].split('_').map(Number);
-    const [bq, br] = rawKeys[j].split('_').map(Number);
-    const line = hexLine(aq, ar, bq, br);
-    for (const pt of line) boundSet.add(`${pt.q}_${pt.r}`);
-  }
-  
-  // 2. Find seed hex inside the lasso (use centroid of lasso points)
-  let sumQ = 0, sumR = 0;
-  for (const k of rawKeys) { const [q,r] = k.split('_').map(Number); sumQ += q; sumR += r; }
-  const seedQ = Math.round(sumQ / rawKeys.length);
-  const seedR = Math.round(sumR / rawKeys.length);
-  const seedKey = `${seedQ}_${seedR}`;
-
-  // 3. Flood fill from seed, bounded by lasso wall
-  const hexSet = new Set();
-  const stack = [seedKey];
-  const visited = new Set();
-  const maxHex = 20000;
-  const mapR = mapData?.gridSize || 80;
-  const MAX_DIST = mapR * 2;
-  while (stack.length && hexSet.size < maxHex) {
-    const key = stack.pop();
-    if (visited.has(key) || boundSet.has(key)) continue;
-    visited.add(key);
-    hexSet.add(key);
-    const [q, r] = key.split('_').map(Number);
-    if (Math.abs(q) > MAX_DIST || Math.abs(r) > MAX_DIST) continue;
-    for (const [dq, dr] of DIR_VECTORS) {
-      const nk = `${q+dq}_${r+dr}`;
-      const nq = q + dq, nr = r + dr;
-      if (Math.abs(nq) > MAX_DIST || Math.abs(nr) > MAX_DIST) continue;
-      if (!visited.has(nk) && !boundSet.has(nk)) stack.push(nk);
-    }
-  }
-  // Also include the lasso boundary hexes themselves
-  for (const k of rawKeys) hexSet.add(k);
-
-  // 4. Send hexSet to backend for merge/carve
+  // Send raw lasso keys to backend — backend handles closure + fill
   fetch(`/api/map/${MapAPI.worldId}/blocks`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({terrain, hexKeys: [...hexSet], seedKey})
+    body: JSON.stringify({terrain, lassoKeys: rawKeys, seedKey: rawKeys[0]})
   }).then(r => r.json()).then(async data => {
     if (data.ok) {
-      showToast(`${terrain} 区域已添加 (${hexSet.size} 格)`);
+      showToast(`${terrain} 区域已添加`);
       await loadMap();
       render();
     } else {
