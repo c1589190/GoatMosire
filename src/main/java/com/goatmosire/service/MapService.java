@@ -95,6 +95,36 @@ public class MapService {
         return result;
     }
 
+    // ── Nodes ──────────────────────────────────────────────
+
+    /** List all nodes in a world directory. Returns nodeId + turn if the node JSON is readable. */
+    public List<Map<String, Object>> listNodes(String worldId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        Path nodesDir = worldsDir.resolve(worldId).resolve("nodes");
+        if (!Files.isDirectory(nodesDir)) return result;
+
+        try (var stream = Files.list(nodesDir)) {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            stream.filter(f -> {
+                String name = f.getFileName().toString();
+                return name.startsWith("n") && name.endsWith(".json") && !name.contains("_map");
+            }).sorted().forEach(f -> {
+                try {
+                    var node = mapper.readTree(f.toFile());
+                    Map<String, Object> info = new LinkedHashMap<>();
+                    String nid = f.getFileName().toString().replace(".json", "");
+                    info.put("nodeId", nid);
+                    info.put("turn", node.has("turn") ? node.get("turn").asInt() : -1);
+                    info.put("worldTime", node.has("worldTime") ? node.get("worldTime").asText() : "");
+                    info.put("hasMap", Files.exists(
+                        worldsDir.resolve(worldId).resolve("nodes").resolve(nid + "_map.json")));
+                    result.add(info);
+                } catch (Exception ignored) {}
+            });
+        } catch (Exception ignored) {}
+        return result;
+    }
+
     // ── Cache ─────────────────────────────────────────────
 
     public void evict(String worldId, String nodeId) {

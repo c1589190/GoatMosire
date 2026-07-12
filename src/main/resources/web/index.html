@@ -58,6 +58,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
 <div class="toolbar" id="toolbar">
   <span style="font-weight:700;color:var(--accent)">⬡ GoatMosire</span>
   <select id="worldSelect" onchange="onWorldChange()"><option>loading...</option></select>
+  <select id="nodeSelect" onchange="onNodeChange()" style="min-width:100px"><option>auto</option></select>
 
   <button id="btnPen" class="active" onclick="setTool('pen')" title="画笔 (P)">🖊</button>
   <button id="btnFill" onclick="setTool('fill')" title="填充 (F)">🪣</button>
@@ -329,7 +330,27 @@ async function init() {
 async function onWorldChange() {
   MapAPI.worldId = document.getElementById('worldSelect').value;
   MapAPI.nodeId = null;
+  await loadNodes();
   await loadMap();
+}
+
+async function loadNodes() {
+  try {
+    const r = await fetch(`/api/map/${MapAPI.worldId}/nodes`);
+    const data = await r.json();
+    const sel = document.getElementById('nodeSelect');
+    sel.innerHTML = '<option value="">auto (活跃节点)</option>';
+    (data.nodes||[]).forEach(n => {
+      const marker = n.hasMap ? ' 🗺' : '';
+      sel.innerHTML += `<option value="${n.nodeId}">${n.nodeId} (T${n.turn})${marker}</option>`;
+    });
+  } catch(e) { console.warn('Failed to load nodes:', e); }
+}
+
+function onNodeChange() {
+  MapAPI.nodeId = document.getElementById('nodeSelect').value || null;
+  mapData = null;
+  loadMap();
 }
 
 async function loadMap() {

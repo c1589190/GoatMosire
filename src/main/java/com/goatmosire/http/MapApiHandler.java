@@ -57,6 +57,8 @@ public class MapApiHandler implements HttpHandler {
                 handleList(exchange);
             } else if (sub.endsWith("/history")) {
                 handleHistory(exchange, sub, params);
+            } else if (sub.endsWith("/nodes")) {
+                handleNodes(exchange, sub);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -104,6 +106,14 @@ public class MapApiHandler implements HttpHandler {
     private void handleList(HttpExchange exchange) throws IOException {
         List<String> worlds = mapService.listWorldsWithMaps();
         sendJson(exchange, 200, Map.of("worlds", worlds));
+    }
+
+    // ── GET /api/map/{worldId}/nodes ────────────────────
+
+    private void handleNodes(HttpExchange exchange, String sub) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/nodes"));
+        List<Map<String, Object>> nodes = mapService.listNodes(worldId);
+        sendJson(exchange, 200, Map.of("worldId", worldId, "nodes", nodes));
     }
 
     // ── POST /api/map/{worldId} (create full map) ─────────
