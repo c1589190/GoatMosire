@@ -543,7 +543,7 @@ async function generateWorld() {
   setStatus('🎲 生成大陆中...');
   try {
     const seed = Date.now();
-    const r = await fetch(`/api/map/${MapAPI.worldId}/generate?seed=${seed}&ridges=4&fragments=8&land=0.35&roughness=0.5&radius=80`, {method:'POST'});
+    const r = await fetch(`/api/map/${MapAPI.worldId}/generate?seed=${seed}&ridges=6&fragments=12&land=0.35&roughness=0.5&radius=120`, {method:'POST'});
     const data = await r.json();
     showToast(`大陆已生成: ${data.landHexes} 格陆地 / ${data.hexCount} 格总 (seed:${data.seed})`);
     setStatus(`大陆: ${data.landHexes} 格陆地 | 🍖平原 🌲森林 ⛰山地 ⛰丘陵`);
@@ -1075,7 +1075,7 @@ async function loadMap() {
     setStatus(`已加载: ${MapAPI.worldId} (${mapData.terrainBlocks.length} 地形块)`);
   } catch(e) {
     // Create empty map
-    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:80, hexOrientation:false, rivers:[], roads:[]};
+    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
     buildTerrainButtons(DEFAULT_TERRAINS);
     setStatus('空画布 — 点 🎲 生成新大陆');
   }
