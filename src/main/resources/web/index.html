@@ -401,15 +401,16 @@ function renderLassoPreview() {
 
 function setTool(t) {
   tool = t;
-  document.getElementById('btnTerrainLasso').classList.toggle('active', t==='terrain_lasso');
+  document.getElementById('btnPen').classList.toggle('active', t==='pen');
+  document.getElementById('btnFill').classList.toggle('active', t==='fill');
+  document.getElementById('btnEraser').classList.toggle('active', t==='eraser');
   document.getElementById('btnRiver').classList.toggle('active', t==='river');
   document.getElementById('btnProvince').classList.toggle('active', t==='province');
   riverStart = null;
-  provincePts = [];
+  provinceLasso = [];
   lassoPts = [];
-  selectedProvince = null;
   if (t === 'province') showProvinceList();
-  else { document.getElementById('infoPanel').style.display = 'none'; }
+  else { const ip = document.getElementById('infoPanel'); if (ip) ip.style.display = 'none'; }
 }
 
 // ── River constants ─────────────────────────────────────
