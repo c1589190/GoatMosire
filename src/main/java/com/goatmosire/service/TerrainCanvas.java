@@ -183,23 +183,29 @@ public class TerrainCanvas {
             blocks.removeAll(toRemove);
             toRemove.clear();
 
-            // ── Phase B: different-terrain interaction ──
-            // Rules:
-            //   - Small inside big → z-ordering: new block (on top) covers implicitly
-            //   - Big over small → max retention: hollow NEW block, keep existing intact
-            //   - Override: same-terrain merge + fully contains diff block → delete diff block
+            // ── Phase B: different-terrain → new block wins, carve old ──
             for (Block existing : new ArrayList<>(blocks)) {
                 if (existing.terrain.equals(terrain)) continue;
                 Set<String> es = existing.hexSet(mapRadius);
 
-                if (didMerge && newSet.containsAll(es)) {
-                    // Override: user encircles diff-terrain block with same-terrain as surrounding
+                // Check overlap
+                Set<String> overlap = new HashSet<>(es);
+                overlap.retainAll(newSet);
+
+                if (overlap.isEmpty()) continue;
+
+                // New block overwrites: remove overlap from old block
+                es.removeAll(overlap);
+
+                if (es.isEmpty()) {
+                    // Old block fully covered → remove it
                     toRemove.add(existing);
-                } else if (newSet.containsAll(es)) {
-                    // New big over existing small → hollow NEW block (keep existing intact)
-                    newSet.removeAll(es);
+                } else {
+                    // Old block partially covered → rebuild boundary
+                    existing.invalidateCache();
+                    existing.boundary = es.size() <= 500
+                        ? TerrainGeometry.hexSetToBoundary(es) : List.of();
                 }
-                // new small inside existing big → nothing needed, z-ordering handles it
             }
             blocks.removeAll(toRemove);
             toRemove.clear();
