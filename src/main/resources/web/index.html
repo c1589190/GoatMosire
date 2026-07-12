@@ -667,14 +667,22 @@ canvas.addEventListener('mousemove', e => {
     render(); return;
   }
 
-  // Handle province boundary dragging — add new hex, don't remove old
+  // Handle province boundary dragging
   if (dragPoint) {
     const h = getHexAtEvent(e);
     if (h && (h.q !== dragPoint.q || h.r !== dragPoint.r)) {
       const newKey = `${h.q}_${h.r}`;
+      const oldKey = `${dragPoint.q}_${dragPoint.r}`;
       const p = mapData.provinces[selectedProvince];
-      if (p?.hexes && mapData.hexes[newKey] && !p.hexes.includes(newKey)) {
-        p.hexes.push(newKey);
+      if (p?.hexes) {
+        const inProvince = p.hexes.includes(newKey);
+        if (!inProvince && mapData.hexes[newKey]) {
+          // Dragging outward → add new hex
+          p.hexes.push(newKey);
+        } else if (inProvince && newKey !== oldKey) {
+          // Dragging inward → remove old boundary hex
+          p.hexes = p.hexes.filter(k => k !== oldKey);
+        }
         dragPoint = {q: h.q, r: h.r};
         render();
       }
