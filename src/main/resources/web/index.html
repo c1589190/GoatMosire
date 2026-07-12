@@ -348,16 +348,23 @@ async function loadNodes() {
     const r = await fetch(`/api/map/${MapAPI.worldId}/nodes`);
     const data = await r.json();
     const sel = document.getElementById('nodeSelect');
+    const savedNodeId = localStorage.getItem('goatmosire_nodeId') || '';
     sel.innerHTML = '<option value="">auto (活跃节点)</option>';
     (data.nodes||[]).forEach(n => {
       const marker = n.hasMap ? ' 🗺' : '';
       sel.innerHTML += `<option value="${n.nodeId}">${n.nodeId} (T${n.turn})${marker}</option>`;
     });
+    // Restore saved node selection
+    if (savedNodeId) {
+      sel.value = savedNodeId;
+      MapAPI.nodeId = savedNodeId;
+    }
   } catch(e) { console.warn('Failed to load nodes:', e); }
 }
 
 function onNodeChange() {
   MapAPI.nodeId = document.getElementById('nodeSelect').value || null;
+  localStorage.setItem('goatmosire_nodeId', MapAPI.nodeId || '');
   mapData = null;
   loadMap();
 }
