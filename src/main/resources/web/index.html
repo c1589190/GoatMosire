@@ -182,19 +182,20 @@ function resolveTerrainColor(q, r, cell) {
   const blocks = (mapData.terrainBlocks || []);
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
-    if (b.hexKeys && b.hexKeys.has) {
-      if (b.hexKeys.has(key)) {
-        return getTerrainColor(b.terrain);
-      }
-    } else if (b.boundary && b.boundary.length >= 3) {
-      // Fallback: point-in-polygon (for blocks without hexKeys)
+    if (b._hexSet && b._hexSet.has(key)) {
+      return getTerrainColor(b.terrain);
+    }
+    if (b.hexKeys && Array.isArray(b.hexKeys) && b.hexKeys.includes(key)) {
+      return getTerrainColor(b.terrain);
+    }
+    if (b.boundary && b.boundary.length >= 3) {
       const z = hexToPixel(q, r);
       if (pointInPolygon(z.x, z.y, b.boundary)) {
         return getTerrainColor(b.terrain);
       }
     }
   }
-  return (cell && cell.color) || getTerrainColor(cell?.terrain) || '#808080';
+  return (cell && cell.color) || getTerrainColor(cell?.terrain) || '#3295D2';
 }
 
 // ── Rendering ───────────────────────────────────────────
@@ -1060,6 +1061,12 @@ async function loadMap() {
     }
     if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
     if (!mapData.hexes) mapData.hexes = {};
+    // Convert hexKeys arrays to Sets for O(1) lookup
+    for (const b of mapData.terrainBlocks) {
+      if (b.hexKeys && Array.isArray(b.hexKeys)) {
+        b._hexSet = new Set(b.hexKeys);
+      }
+    }
     setStatus(`已加载: ${MapAPI.worldId} (${mapData.terrainBlocks.length} 地形块)`);
   } catch(e) {
     // Create empty map
