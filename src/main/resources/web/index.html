@@ -647,6 +647,8 @@ canvas.addEventListener('mousedown', e => {
       }
     }
     panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
+    mouseDown = true;
+    clickHex = getHexAtEvent(e);
   }
 });
 
@@ -657,6 +659,7 @@ canvas.addEventListener('mousemove', e => {
   if (panStart) {
     offX = panOff.x + (e.clientX - panStart.x);
     offY = panOff.y + (e.clientY - panStart.y);
+    if (Math.abs(e.clientX - panStart.x) > 3 || Math.abs(e.clientY - panStart.y) > 3) clickHex = null;
     render(); return;
   }
 
