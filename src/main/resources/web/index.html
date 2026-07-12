@@ -456,7 +456,10 @@ function renderProvinceHighlight() {
   ctx.save();
   ctx.translate(offX, offY);
   ctx.scale(zoom, zoom);
-  // Draw colored fill for province hexes
+
+  const allHexes = new Set(p.hexes);
+
+  // Draw semi-transparent fill for ALL province hexes
   ctx.fillStyle = (p.color || '#FF0000') + '33';
   for (const key of p.hexes) {
     const [q, r] = key.split('_').map(Number);
@@ -468,25 +471,61 @@ function renderProvinceHighlight() {
     ctx.closePath();
     ctx.fill();
   }
-  // Draw border dots at boundary hexes
-  ctx.fillStyle = p.color || '#FF0000';
-  const allHexes = new Set(p.hexes);
+
+  // Draw draggable dots at boundary hexes ONLY (those WITHIN province that touch outside)
+  const boundaryHexes = [];
   for (const key of p.hexes) {
     const [q, r] = key.split('_').map(Number);
-    // Check if any neighbor is outside the province
     let isBoundary = false;
     for (const [dq, dr] of DIR_VECTORS) {
       if (!allHexes.has(`${q+dq}_${r+dr}`)) { isBoundary = true; break; }
     }
-    if (isBoundary) {
-      const {x, y} = hexToPixel(q, r);
-      ctx.beginPath();
-      ctx.arc(x, y, 3/zoom, 0, Math.PI*2);
-      ctx.fill();
-    }
+    if (isBoundary) boundaryHexes.push({q, r});
   }
+
+  ctx.fillStyle = p.color || '#FF0000';
+  for (const {q, r} of boundaryHexes) {
+    const {x, y} = hexToPixel(q, r);
+    ctx.beginPath();
+    ctx.arc(x, y, 4 / zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Store boundary hexes for drag detection
+  canvas._boundaryHexes = boundaryHexes;
   ctx.restore();
 }
+
+// ── Province boundary dragging ──────────────────────────
+let dragPoint = null;  // {q, r} of boundary hex being dragged
+let dragStart = null;  // {q, r} of original position
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY}; return;
+  }
+  if (e.button !== 0) return;
+  mouseDown = true;
+  clickHex = getHexAtEvent(e);
+
+  // Check if clicking on a boundary dot for dragging
+  if (selectedProvince && canvas._boundaryHexes && tool === 'province') {
+    const r = canvas.getBoundingClientRect();
+    const mx = (e.clientX - r.left - offX) / zoom;
+    const my = (e.clientY - r.top - offY) / zoom;
+    for (const bp of canvas._boundaryHexes) {
+      const {x: bx, y: by} = hexToPixel(bp.q, bp.r);
+      const dist = Math.hypot(mx - bx, my - by);
+      if (dist < 8 / zoom) {
+        dragPoint = bp;
+        dragStart = {q: bp.q, r: bp.r};
+        clickHex = null;
+        mouseDown = false;
+        return;
+      }
+    }
+  }
+});
 
 function hexLine(aq, ar, bq, br) {
   const dist = Math.max(Math.abs(bq - aq), Math.abs(br - ar), Math.abs((-bq-br) - (-aq-ar)));
@@ -601,20 +640,35 @@ function renderProvincePreview() {
 // ── Interaction ─────────────────────────────────────────
 let clickHex = null;
 
-canvas.addEventListener('mousedown', e => {
-  if (e.button===1 || (e.button===0 && e.shiftKey)) {
-    panStart={x:e.clientX,y:e.clientY}; panOff={x:offX,y:offY}; return;
-  }
-  if (e.button!==0) return;
-  mouseDown=true;
-  clickHex = getHexAtEvent(e);
-});
+// (mousedown handler defined above in Province boundary dragging section)
 
 canvas.addEventListener('mousemove', e => {
   if (panStart) {
     offX=panOff.x+(e.clientX-panStart.x); offY=panOff.y+(e.clientY-panStart.y);
     render(); return;
   }
+
+  // Handle province boundary dragging
+  if (dragPoint) {
+    const h = getHexAtEvent(e);
+    if (h && (h.q !== dragPoint.q || h.r !== dragPoint.r)) {
+      // Move the boundary point to the new hex
+      const oldKey = `${dragPoint.q}_${dragPoint.r}`;
+      const newKey = `${h.q}_${h.r}`;
+      const p = mapData.provinces[selectedProvince];
+      if (p?.hexes) {
+        // Remove old position, add new position if it has terrain
+        p.hexes = p.hexes.filter(k => k !== oldKey);
+        if (mapData.hexes[newKey] && !p.hexes.includes(newKey)) {
+          p.hexes.push(newKey);
+        }
+        dragPoint = {q: h.q, r: h.r};
+        render();
+      }
+    }
+    return;
+  }
+
   const h=getHexAtEvent(e);
   if (h) {
     tooltip.style.display='block';
@@ -630,6 +684,11 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mouseup', () => {
+  if (dragPoint) {
+    dragPoint = null;
+    render();
+    return;
+  }
   if (clickHex && tool === 'river') {
     addRiverWaypoint(clickHex.q, clickHex.r);
   } else if (clickHex && tool === 'province') {
