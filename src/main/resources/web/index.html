@@ -1166,7 +1166,8 @@ async function loadMap() {
         b._hexSet = new Set(b.hexKeys);
       }
     }
-    setStatus(`已加载: ${MapAPI.worldId} (${mapData.terrainBlocks.length} 地形块)`);
+    if (!mapData.tags) mapData.tags = {};
+    setStatus(`已加载: ${MapAPI.worldId}`);
   } catch(e) {
     // Create empty map
     mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
@@ -1183,7 +1184,12 @@ async function saveMap() {
     mapData.terrainTypes = {...DEFAULT_TERRAINS};
   }
   try {
-    await MapAPI.save(mapData);
+    // Strip tags before saving (not in gsim-core MapData yet)
+    const tags = mapData.tags;
+    const clean = {...mapData};
+    delete clean.tags;
+    await MapAPI.save(clean);
+    mapData.tags = tags; // restore
     showToast('已保存');
     setStatus('已保存');
   } catch(e) { showToast('保存失败: '+e.message); }
