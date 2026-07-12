@@ -4,8 +4,8 @@ import com.gsim.map.MapData;
 import java.util.*;
 
 /**
- * Validates and auto-closes lasso boundaries, then flood-fills interior.
- * Uses convex hull + bounded fill — no hexLine gap issues.
+ * Closes lasso by bridging consecutive hexes (in draw order) with
+ * Bresenham hex line, then flood fills interior.
  */
 public final class LassoProcessor {
 
@@ -13,125 +13,128 @@ public final class LassoProcessor {
 
     private static final int[][] DIRS = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
     private static final int MAX_RADIUS = 200;
-    private static final int MAX_FILL = 50000;
+    private static final int MAX_FILL = 30000;
 
-    /**
-     * From raw lasso hexKeys, compute convex hull, then flood fill inside hull.
-     * @param rawKeys list of hex keys from lasso (e.g., "10_-5")
-     * @return filled hex set, or empty if invalid
-     */
     public static Set<String> fill(List<String> rawKeys) {
         if (rawKeys == null || rawKeys.size() < 3) return Collections.emptySet();
 
-        // Parse all lasso hexes, filter OOB
+        // Parse and filter OOB
         List<int[]> pts = new ArrayList<>();
         for (String k : rawKeys) {
             int[] qr = MapData.parseHexKey(k);
-            if (Math.abs(qr[0]) <= MAX_RADIUS && Math.abs(qr[1]) <= MAX_RADIUS) {
+            if (Math.abs(qr[0]) <= MAX_RADIUS && Math.abs(qr[1]) <= MAX_RADIUS)
                 pts.add(qr);
-            }
         }
         if (pts.size() < 3) return Collections.emptySet();
 
-        // Compute convex hull of lasso points
-        List<int[]> hull = convexHull(pts);
-
-        // Build hull hex set (border wall)
-        Set<String> hullSet = new HashSet<>();
-        for (int[] p : hull) hullSet.add(p[0] + "_" + p[1]);
-
-        // Also add hexLine bridging along hull edges for solid boundary
-        for (int i = 0; i < hull.size(); i++) {
-            int[] a = hull.get(i);
-            int[] b = hull.get((i + 1) % hull.size());
-            for (String k : hexLine(a[0], a[1], b[0], b[1])) {
-                hullSet.add(k);
-            }
+        // Build wall: lasso hexes + Bresenham bridges between consecutive points
+        Set<String> wall = new LinkedHashSet<>();
+        List<int[]> deduped = deduplicate(pts);
+        for (int[] p : deduped) wall.add(p[0] + "_" + p[1]);
+        // Bridge consecutive hexes (including last→first)
+        for (int i = 0; i < deduped.size(); i++) {
+            int[] a = deduped.get(i);
+            int[] b = deduped.get((i + 1) % deduped.size());
+            if (hexDist(a[0], a[1], b[0], b[1]) <= 1) continue;
+            for (String k : hexLineBresenham(a[0], a[1], b[0], b[1]))
+                wall.add(k);
         }
 
-        // Find seed: centroid of original lasso hexes
+        // Find seed: centroid of wall
         double sq = 0, sr = 0;
-        for (int[] p : pts) { sq += p[0]; sr += p[1]; }
-        int seedQ = (int) Math.round(sq / pts.size());
-        int seedR = (int) Math.round(sr / pts.size());
+        for (int[] p : deduped) { sq += p[0]; sr += p[1]; }
+        int seedQ = (int) Math.round(sq / deduped.size());
+        int seedR = (int) Math.round(sr / deduped.size());
         String seed = seedQ + "_" + seedR;
+        if (wall.contains(seed)) {
+            // Seed is on wall — nudge inward
+            seed = findInsideSeed(wall, seedQ, seedR);
+            if (seed == null) return Collections.emptySet();
+        }
 
-        if (hullSet.contains(seed)) return Collections.emptySet();
-
-        // Flood fill inside hull
+        // Flood fill inside wall
         Set<String> filled = new HashSet<>();
         Deque<String> stack = new ArrayDeque<>();
-        Set<String> visited = new HashSet<>();
         stack.push(seed);
 
         while (!stack.isEmpty() && filled.size() < MAX_FILL) {
             String key = stack.pop();
-            if (visited.contains(key) || hullSet.contains(key)) continue;
+            if (filled.contains(key) || wall.contains(key)) continue;
             int[] qr = MapData.parseHexKey(key);
             if (Math.abs(qr[0]) > MAX_RADIUS || Math.abs(qr[1]) > MAX_RADIUS) continue;
-            visited.add(key);
             filled.add(key);
             for (int[] d : DIRS) {
-                String nk = (qr[0] + d[0]) + "_" + (qr[1] + d[1]);
-                if (!visited.contains(nk) && !hullSet.contains(nk)) stack.push(nk);
+                String nk = (qr[0]+d[0]) + "_" + (qr[1]+d[1]);
+                if (!filled.contains(nk) && !wall.contains(nk)) stack.push(nk);
             }
         }
+
+        // If fill is suspiciously large (leaked), return empty
+        if (filled.size() >= MAX_FILL) return Collections.emptySet();
+
         return filled;
     }
 
-    /** Andrew's monotone chain convex hull for 2D points. */
-    private static List<int[]> convexHull(List<int[]> pts) {
-        if (pts.size() <= 3) return new ArrayList<>(pts);
-
-        // Sort by q then r
-        List<int[]> sorted = new ArrayList<>(pts);
-        sorted.sort((a, b) -> a[0] != b[0] ? Integer.compare(a[0], b[0]) : Integer.compare(a[1], b[1]));
-
-        List<int[]> lower = new ArrayList<>();
-        for (int[] p : sorted) {
-            while (lower.size() >= 2 && cross(lower.get(lower.size()-2), lower.get(lower.size()-1), p) <= 0)
-                lower.remove(lower.size()-1);
-            lower.add(p);
+    /** Remove consecutive duplicate hexes. */
+    private static List<int[]> deduplicate(List<int[]> pts) {
+        List<int[]> out = new ArrayList<>();
+        int[] prev = null;
+        for (int[] p : pts) {
+            if (prev == null || prev[0] != p[0] || prev[1] != p[1]) {
+                out.add(p);
+                prev = p;
+            }
         }
-
-        List<int[]> upper = new ArrayList<>();
-        for (int i = sorted.size()-1; i >= 0; i--) {
-            int[] p = sorted.get(i);
-            while (upper.size() >= 2 && cross(upper.get(upper.size()-2), upper.get(upper.size()-1), p) <= 0)
-                upper.remove(upper.size()-1);
-            upper.add(p);
-        }
-
-        lower.remove(lower.size()-1);
-        upper.remove(upper.size()-1);
-        lower.addAll(upper);
-        return lower;
+        return out;
     }
 
-    private static int cross(int[] o, int[] a, int[] b) {
-        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    /** Find a hex inside the wall near (q,r) by trying neighbors. */
+    private static String findInsideSeed(Set<String> wall, int q, int r) {
+        for (int[] d : DIRS) {
+            for (int[] d2 : DIRS) {
+                String k = (q + d[0] + d2[0]) + "_" + (r + d[1] + d2[1]);
+                if (!wall.contains(k)) return k;
+            }
+        }
+        return null;
     }
 
-    /** Hex line between two axial hexes, guaranteed contiguous. */
-    private static List<String> hexLine(int aq, int ar, int bq, int br) {
+    // ── Bresenham hex line (guaranteed contiguous, no gaps) ─
+
+    private static List<String> hexLineBresenham(int aq, int ar, int bq, int br) {
         List<String> line = new ArrayList<>();
-        int dist = (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq-ar + bq+br)) / 2;
+        int dist = hexDist(aq, ar, bq, br);
         if (dist == 0) { line.add(aq + "_" + ar); return line; }
+
+        // Convert to cube coords
+        int ax = aq, ay = ar, az = -aq - ar;
+        int bx = bq, by = br, bz = -bq - br;
 
         for (int i = 0; i <= dist; i++) {
             double t = (double) i / dist;
-            double fq = aq + (bq - aq) * t;
-            double fr = ar + (br - ar) * t;
-            // Axial rounding
-            int q = (int) Math.round(fq);
-            int r = (int) Math.round(fr);
-            double dq = Math.abs(fq - q);
-            double dr = Math.abs(fr - r);
-            double ds = Math.abs(-fq-fr - (-q-r));
-            if (dq > dr && dq > ds) q = -r - (-q-r);
-            else if (dr > ds) r = -q - (-q-r);
-            line.add(q + "_" + r);
+            double fx = ax + (bx - ax) * t;
+            double fy = ay + (by - ay) * t;
+            double fz = az + (bz - az) * t;
+            int[] qr = cubeRound(fx, fy, fz);
+            line.add(qr[0] + "_" + qr[1]);
         }
         return line;
+    }
+
+    private static int[] cubeRound(double fx, double fy, double fz) {
+        int rx = (int) Math.round(fx);
+        int ry = (int) Math.round(fy);
+        int rz = (int) Math.round(fz);
+        double dx = Math.abs(rx - fx);
+        double dy = Math.abs(ry - fy);
+        double dz = Math.abs(rz - fz);
+        if (dx > dy && dx > dz) rx = -ry - rz;
+        else if (dy > dz) ry = -rx - rz;
+        else rz = -rx - ry;
+        return new int[]{rx, ry};
+    }
+
+    private static int hexDist(int aq, int ar, int bq, int br) {
+        return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq-ar + bq+br)) / 2;
     }
 }
