@@ -4,36 +4,22 @@ import com.gsim.map.MapData;
 import java.util.*;
 
 /**
- * Voronoi + fractal noise continent generator for hex maps.
+ * Voronoi + ridge-line continent generator for hex maps.
  *
  * Algorithm:
- *   1. Place random continent seed points (1 large + N small islands)
- *   2. For each hex, compute weighted distance to nearest seed
- *   3. Apply fractal noise overlay (multi-octave hash noise)
- *   4. Add coastal erosion via sigmoid threshold
- *   5. Classify elevation bands into terrain types
+ *   1. Place continent seeds (1 large + N small islands)
+ *   2. For each seed, generate 2-4 mountain ridge lines radiating outward
+ *   3. Voronoi distance field determines land/ocean boundary
+ *   4. Hash jitter on coastline for irregular edges (with smoothness control)
+ *   5. Terrain: mountain (near ridge) → hills → forest/plains → swamp/coast
  */
 public class MapGenerator {
 
     private final Random rng;
     private final int radius;
-    private double[] seedX;
-    private double[] seedY;
-    private double[] seedWeight;
-
-    // Noise permutation table (classic Perlin-style)
-    private static final int[] PERM = new int[512];
-    static {
-        int[] p = {151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,
-            190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,
-            168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,
-            102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,
-            186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,
-            170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,
-            112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,
-            199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180};
-        for (int i = 0; i < 512; i++) PERM[i] = p[i & 255];
-    }
+    private double[] seedX, seedY, seedWeight;
+    // Ridge lines: for each seed, list of {angle, length} pairs
+    private List<double[]>[] seedRidges;
 
     public MapGenerator(long seed, int mapRadius) {
         this.rng = new Random(seed);
@@ -41,87 +27,105 @@ public class MapGenerator {
     }
 
     /**
-     * Set continent center points. Each pair (x,y) is a seed location, weight controls mass.
+     * Place continent seeds with random positions and weights.
+     * Also generate mountain ridge lines for each seed.
      */
+    @SuppressWarnings("unchecked")
     public void placeSeeds(int mainCount, int islandCount) {
         int total = mainCount + islandCount;
         seedX = new double[total];
         seedY = new double[total];
         seedWeight = new double[total];
+        seedRidges = new List[total];
 
-        // Main continents: spread around center with some randomness
+        // Main continents
         for (int i = 0; i < mainCount; i++) {
             double angle = (2 * Math.PI * i / mainCount) + rng.nextGaussian() * 0.3;
             double dist = radius * (0.1 + rng.nextDouble() * 0.3);
             seedX[i] = Math.cos(angle) * dist;
             seedY[i] = Math.sin(angle) * dist;
             seedWeight[i] = 1.0 + rng.nextDouble() * 0.5;
+            seedRidges[i] = generateRidges(seedX[i], seedY[i], seedWeight[i], 3 + rng.nextInt(3));
         }
 
-        // Islands: random scatter
+        // Islands
         for (int i = mainCount; i < total; i++) {
             double angle = rng.nextDouble() * 2 * Math.PI;
             double dist = radius * (0.2 + rng.nextDouble() * 0.7);
             seedX[i] = Math.cos(angle) * dist;
             seedY[i] = Math.sin(angle) * dist;
             seedWeight[i] = 0.15 + rng.nextDouble() * 0.35;
+            seedRidges[i] = generateRidges(seedX[i], seedY[i], seedWeight[i], 1 + rng.nextInt(2));
         }
     }
 
+    /** Generate ridge lines radiating from a seed center */
+    private List<double[]> generateRidges(double cx, double cy, double weight, int count) {
+        List<double[]> ridges = new ArrayList<>();
+        double baseAngle = rng.nextDouble() * 2 * Math.PI;
+        double maxLen = weight * radius * 0.30;  // same as coreRadius
+        for (int i = 0; i < count; i++) {
+            double angle = baseAngle + (2 * Math.PI * i / count) + rng.nextGaussian() * 0.3;
+            double len = maxLen * (0.5 + rng.nextDouble() * 0.5);
+            ridges.add(new double[]{angle, len});
+        }
+        return ridges;
+    }
+
     /**
-     * Generate a full MapData from the placed seeds.
+     * Generate MapData from placed seeds.
+     * @param landRatio  0-1, target land fraction (approximate)
+     * @param coastRoughness 0-1, 0=smooth circles, 1=max jitter
      */
-    public MapData generate(double landRatio, double mountainRatio) {
-        // Hex grid: flat-top, radius determines hex count
+    public MapData generate(double landRatio, double coastRoughness) {
+        var hexes = new LinkedHashMap<String, MapData.HexCell>();
         int maxQ = radius, minQ = -radius;
         int maxR = radius, minR = -radius;
-
-        var hexes = new LinkedHashMap<String, MapData.HexCell>();
 
         for (int q = minQ; q <= maxQ; q++) {
             for (int r = minR; r <= maxR; r++) {
                 int s = -(q + r);
                 if (Math.abs(q) + Math.abs(r) + Math.abs(s) > 2 * radius) continue;
 
-                // Convert axial to pixel for noise sampling
-                double px = q * 1.0 + r * 0.5;
+                double px = q + r * 0.5;
                 double py = r * 0.8660254;
 
-                // Compute elevation from Voronoi distance + noise
-                double elev = computeElevation(px, py);
+                // Find nearest seed
+                double minWdist = Double.MAX_VALUE;
+                int nearestIdx = 0;
+                for (int i = 0; i < seedX.length; i++) {
+                    double dx = px - seedX[i], dy = py - seedY[i];
+                    double wdist = Math.sqrt(dx*dx + dy*dy) / seedWeight[i];
+                    if (wdist < minWdist) { minWdist = wdist; nearestIdx = i; }
+                }
 
-                if (elev < 0.5) {
+                double coreRadius = seedWeight[nearestIdx] * radius * 0.30;
+                double jitterRadius = coreRadius * (0.5 + coastRoughness * 0.5);
+
+                // Deep interior: solid land
+                boolean isLand;
+                if (minWdist < coreRadius * 0.7) {
+                    isLand = true;
+                } else if (minWdist > coreRadius * 1.4 + jitterRadius) {
+                    isLand = false;
+                } else {
+                    // Edge zone: hash jitter for coastline
+                    double edgeT = (minWdist - coreRadius * 0.7) / (coreRadius * 0.7 + jitterRadius);
+                    double threshold = hash2d((int)(px * 5), (int)(py * 5));
+                    // Blend: smooth threshold near 0.5, scattered near edges
+                    double jitter = (threshold - 0.5) * coastRoughness;
+                    isLand = edgeT < (0.45 + jitter);
+                }
+
+                if (!isLand) {
                     hexes.put(MapData.hexKey(q, r),
                         new MapData.HexCell("#3295D2", "water", null, null, "", 0));
                     continue;
                 }
 
-                // Terrain classification by distance to nearest seed
-                // Find nearest seed and compute distance
-                double minWdist = Double.MAX_VALUE;
-                int nearestSeed = 0;
-                for (int i = 0; i < seedX.length; i++) {
-                    double dx = px - seedX[i];
-                    double dy = py - seedY[i];
-                    double wdist = Math.sqrt(dx*dx+dy*dy) / seedWeight[i];
-                    if (wdist < minWdist) { minWdist = wdist; nearestSeed = i; }
-                }
-                double coreRadius = seedWeight[nearestSeed] * radius * 0.30;
-                double landT = minWdist / coreRadius;  // 0=center, 1=coast
-
-                String terrain;
-                String color;
-                if (landT < 0.2) {
-                    terrain = "mountain"; color = "#808080";
-                } else if (landT < 0.4) {
-                    terrain = "hills"; color = "#BDB76B";
-                } else if (landT < 0.7) {
-                    terrain = rng.nextDouble() < 0.5 ? "forest" : "plains";
-                    color = terrain.equals("forest") ? "#228B22" : "#6CC261";
-                } else {
-                    terrain = rng.nextDouble() < 0.3 ? "swamp" : "plains";
-                    color = terrain.equals("swamp") ? "#556B2F" : "#6CC261";
-                }
+                // Terrain: mountain near ridge lines, then distance-based
+                String terrain = classifyTerrain(px, py, nearestIdx, minWdist, coreRadius);
+                String color = terrainColor(terrain);
 
                 hexes.put(MapData.hexKey(q, r),
                     new MapData.HexCell(color, terrain, null, null, "", 0));
@@ -133,36 +137,55 @@ public class MapGenerator {
             defaultTerrainTypes());
     }
 
-    private double computeElevation(double px, double py) {
-        // Find nearest continent seed (weighted distance)
-        double minWdist = Double.MAX_VALUE;
-        int nearestSeed = 0;
-        for (int i = 0; i < seedX.length; i++) {
-            double dx = px - seedX[i];
-            double dy = py - seedY[i];
-            double dist = Math.sqrt(dx * dx + dy * dy);
-            double wdist = dist / seedWeight[i];
-            if (wdist < minWdist) { minWdist = wdist; nearestSeed = i; }
+    /** Classify terrain based on distance to nearest ridge line + distance from center */
+    private String classifyTerrain(double px, double py, int seedIdx, double minWdist, double coreRadius) {
+        double landT = minWdist / coreRadius;
+
+        // Check distance to nearest ridge line
+        double minRidgeDist = Double.MAX_VALUE;
+        for (double[] ridge : seedRidges[seedIdx]) {
+            double angle = ridge[0], len = ridge[1];
+            // Point on ridge at distance d from center
+            double rx = seedX[seedIdx] + Math.cos(angle) * len * 0.5;
+            double ry = seedY[seedIdx] + Math.sin(angle) * len * 0.5;
+            double rdx = Math.cos(angle), rdy = Math.sin(angle);
+
+            // Distance from point to ridge line
+            double dx = px - rx, dy = py - ry;
+            double proj = dx * rdx + dy * rdy;
+            double perpDist;
+            if (proj < -len * 0.3 || proj > len * 0.3) {
+                // Beyond ridge endpoints: distance to endpoint
+                double ex = rx + Math.signum(proj) * rdx * len * 0.3;
+                double ey = ry + Math.signum(proj) * rdy * len * 0.3;
+                perpDist = Math.sqrt((px-ex)*(px-ex) + (py-ey)*(py-ey));
+            } else {
+                perpDist = Math.abs(-rdy * dx + rdx * dy);
+            }
+            if (perpDist < minRidgeDist) minRidgeDist = perpDist;
         }
+        double ridgeNorm = minRidgeDist / (coreRadius * 0.15);
 
-        // Core continent radius: within seedWeight * radius * 0.30 → solid land
-        // Beyond that, use hash-based jitter for rough edges
-        double coreRadius = seedWeight[nearestSeed] * radius * 0.30;
-        if (minWdist < coreRadius) return 1.0;  // deep interior
+        // Mountain: on or very near ridge, or deep center
+        if (ridgeNorm < 0.5 || landT < 0.10) return "mountain";
+        // Hills: near ridge or high elevation
+        if (ridgeNorm < 1.0 || landT < 0.25) return "hills";
+        // Mid-elevation: forest or plains
+        if (landT < 0.5) return rng.nextDouble() < 0.5 ? "forest" : "plains";
+        // Low/coastal: plains or swamp
+        if (landT < 0.8) return "plains";
+        return rng.nextDouble() < 0.3 ? "swamp" : "plains";
+    }
 
-        // Edge zone: coreRadius to coreRadius * 1.5
-        // Use hash noise to create irregular coastline
-        double edgeWidth = coreRadius * 0.5;
-        double edgeT = (minWdist - coreRadius) / edgeWidth;
-        if (edgeT >= 1.0) return 0.0;  // deep ocean
-
-        // Hash-based jitter: randomize the coastline
-        int hx = (int) Math.floor(px * 3.7);
-        int hy = (int) Math.floor(py * 3.7);
-        double hash = hash2d(hx, hy);
-        double threshold = 0.5 + (hash - 0.5) * 0.8;  // jitter around 0.5
-
-        return edgeT < threshold ? 1.0 : 0.0;
+    private String terrainColor(String terrain) {
+        return switch (terrain) {
+            case "mountain" -> "#808080";
+            case "hills" -> "#BDB76B";
+            case "forest" -> "#228B22";
+            case "plains" -> "#6CC261";
+            case "swamp" -> "#556B2F";
+            default -> "#6CC261";
+        };
     }
 
     /** Simple 2D hash returning 0..1 */
@@ -171,10 +194,6 @@ public class MapGenerator {
         h = (h ^ (h >> 13)) * 1274126177;
         return (h & 0x7fffffff) / (double) 0x7fffffff;
     }
-
-    // ── Removed Perlin noise (fbm, noise, fade, lerp, grad, sigmoid) ──
-
-    // ── Helpers ───────────────────────────────────────────
 
     private static LinkedHashMap<String, MapData.TerrainType> defaultTerrainTypes() {
         var tt = new LinkedHashMap<String, MapData.TerrainType>();
@@ -191,9 +210,9 @@ public class MapGenerator {
 
     public static MapData generate(String worldId, long seed, int mapRadius,
                                    int mainCount, int islandCount,
-                                   double landRatio, double mountainRatio) {
+                                   double landRatio, double coastRoughness) {
         var gen = new MapGenerator(seed, mapRadius);
         gen.placeSeeds(mainCount, islandCount);
-        return gen.generate(landRatio, mountainRatio);
+        return gen.generate(landRatio, coastRoughness);
     }
 }

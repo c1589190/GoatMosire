@@ -411,7 +411,7 @@ async function generateWorld() {
   setStatus('🎲 生成大陆中...');
   try {
     const seed = Date.now();
-    const r = await fetch(`/api/map/${MapAPI.worldId}/generate?seed=${seed}&main=1&islands=8&land=0.40&mountain=0.10&radius=80`, {method:'POST'});
+    const r = await fetch(`/api/map/${MapAPI.worldId}/generate?seed=${seed}&main=1&islands=8&land=0.35&roughness=0.6&radius=80`, {method:'POST'});
     const data = await r.json();
     showToast(`大陆已生成: ${data.landHexes} 格陆地 / ${data.hexCount} 格总 (seed:${data.seed})`);
     setStatus(`大陆: ${data.landHexes} 格陆地 | 🍖平原 🌲森林 ⛰山地 ⛰丘陵`);

@@ -141,9 +141,9 @@ public class MapApiHandler implements HttpHandler {
         int mainCount = Integer.parseInt(params.getOrDefault("main", "1"));
         int islandCount = Integer.parseInt(params.getOrDefault("islands", "6"));
         double landRatio = Double.parseDouble(params.getOrDefault("land", "0.35"));
-        double mountainRatio = Double.parseDouble(params.getOrDefault("mountain", "0.12"));
+        double coastRoughness = Double.parseDouble(params.getOrDefault("roughness", "0.6"));
 
-        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, islandCount, landRatio, mountainRatio);
+        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, islandCount, landRatio, coastRoughness);
         mapService.saveFull(worldId, "n0000", map);
 
         sendJson(exchange, 200, Map.of(
