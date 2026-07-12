@@ -497,8 +497,7 @@ function renderProvinceHighlight() {
 }
 
 // ── Province boundary dragging ──────────────────────────
-let dragPoint = null;  // {q, r} of boundary hex being dragged
-let dragStart = null;  // {q, r} of original position
+let dragPoint = null;
 
 canvas.addEventListener('mousedown', e => {
   if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
@@ -518,7 +517,6 @@ canvas.addEventListener('mousedown', e => {
       const dist = Math.hypot(mx - bx, my - by);
       if (dist < 8 / zoom) {
         dragPoint = bp;
-        dragStart = {q: bp.q, r: bp.r};
         clickHex = null;
         mouseDown = false;
         return;
@@ -669,20 +667,14 @@ canvas.addEventListener('mousemove', e => {
     render(); return;
   }
 
-  // Handle province boundary dragging
+  // Handle province boundary dragging — add new hex, don't remove old
   if (dragPoint) {
     const h = getHexAtEvent(e);
     if (h && (h.q !== dragPoint.q || h.r !== dragPoint.r)) {
-      // Move the boundary point to the new hex
-      const oldKey = `${dragPoint.q}_${dragPoint.r}`;
       const newKey = `${h.q}_${h.r}`;
       const p = mapData.provinces[selectedProvince];
-      if (p?.hexes) {
-        // Remove old position, add new position if it has terrain
-        p.hexes = p.hexes.filter(k => k !== oldKey);
-        if (mapData.hexes[newKey] && !p.hexes.includes(newKey)) {
-          p.hexes.push(newKey);
-        }
+      if (p?.hexes && mapData.hexes[newKey] && !p.hexes.includes(newKey)) {
+        p.hexes.push(newKey);
         dragPoint = {q: h.q, r: h.r};
         render();
       }
