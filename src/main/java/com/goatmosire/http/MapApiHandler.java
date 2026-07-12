@@ -3,6 +3,7 @@ package com.goatmosire.http;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gsim.map.*;
 import com.goatmosire.service.MapService;
+import com.goatmosire.service.MapGenerator;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import org.slf4j.Logger;
@@ -61,6 +62,8 @@ public class MapApiHandler implements HttpHandler {
                 handleNodes(exchange, sub);
             } else if (sub.endsWith("/river-path")) {
                 handleRiverPath(exchange, sub, params);
+            } else if (sub.endsWith("/generate")) {
+                handleGenerate(exchange, sub, params);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -127,6 +130,27 @@ public class MapApiHandler implements HttpHandler {
         int r = Integer.parseInt(params.getOrDefault("r", "0"));
         List<String> path = mapService.findRiverPath(worldId, nodeId, q, r);
         sendJson(exchange, 200, Map.of("source", Map.of("q", q, "r", r), "path", path, "length", path.size()));
+    }
+
+    // ── POST /api/map/{worldId}/generate ─────────────────
+
+    private void handleGenerate(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/generate"));
+        long seed = Long.parseLong(params.getOrDefault("seed", String.valueOf(System.currentTimeMillis())));
+        int radius = Integer.parseInt(params.getOrDefault("radius", "80"));
+        int mainCount = Integer.parseInt(params.getOrDefault("main", "1"));
+        int islandCount = Integer.parseInt(params.getOrDefault("islands", "6"));
+        double landRatio = Double.parseDouble(params.getOrDefault("land", "0.35"));
+        double mountainRatio = Double.parseDouble(params.getOrDefault("mountain", "0.12"));
+
+        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, islandCount, landRatio, mountainRatio);
+        mapService.saveFull(worldId, "n0000", map);
+
+        sendJson(exchange, 200, Map.of(
+            "ok", true, "worldId", worldId, "nodeId", "n0000",
+            "seed", seed, "hexCount", map.hexes().size(),
+            "landHexes", map.hexes().values().stream().filter(c -> !"water".equals(c.terrain())).count()
+        ));
     }
 
     // ── POST /api/map/{worldId} (create full map) ─────────
