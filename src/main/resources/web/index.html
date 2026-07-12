@@ -293,7 +293,8 @@ function finishTerrainLasso() {
   if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
 
   // Compute hex set for new block
-  const newHexSet = hexSetFromPolygon(boundary, mapData.gridSize || 80);
+  const seedKey = `${lassoPts[0]?.q || 0}_${lassoPts[0]?.r || 0}`;
+  const newHexSet = hexSetFromPolygon(boundary, mapData.gridSize || 80, seedKey);
   if (newHexSet.size === 0) { render(); showToast('空区域，跳过'); return; }
 
   // ── Block merge/hole logic ──
@@ -659,31 +660,43 @@ canvas.addEventListener('mousedown', e => {
 });
 
 // Compute hex set from polygon boundary (flood fill from seed)
-function hexSetFromPolygon(boundary, mapRadius) {
+function hexSetFromPolygon(boundary, mapRadius, seedHexArg) {
   if (!boundary || boundary.length < 3) return new Set();
-  const r = mapRadius || 80;
-  // Find bounding box
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of boundary) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
-  // Find seed: center of bounding box
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const seedHex = pixelToHex(cx, cy);
-  if (!seedHex) return new Set();
-  // Flood fill inside polygon
   const hexSet = new Set();
-  const stack = [`${seedHex.q}_${seedHex.r}`];
   const visited = new Set();
-  while (stack.length) {
-    const key = stack.pop();
-    if (visited.has(key)) continue;
-    visited.add(key);
-    const [q, r] = key.split('_').map(Number);
-    const px = q + r * 0.5, py = r * 0.866;
-    if (!pointInPolygon(px, py, boundary)) continue;
-    hexSet.add(key);
-    for (const [dq, dr] of DIR_VECTORS) {
-      const nk = `${q+dq}_${r+dr}`;
-      if (!visited.has(nk)) stack.push(nk);
+  
+  // Try seed from argument, fall back to centroid search
+  let seeds = [];
+  if (seedHexArg) seeds.push(seedHexArg);
+  const cx = boundary.reduce((s,p)=>s+p.x,0)/boundary.length;
+  const cy = boundary.reduce((s,p)=>s+p.y,0)/boundary.length;
+  const ch = pixelToHex(cx, cy);
+  if (ch) seeds.push(`${ch.q}_${ch.r}`);
+  // Also try first boundary point
+  const fh = pixelToHex(boundary[0].x, boundary[0].y);
+  if (fh) seeds.push(`${fh.q}_${fh.r}`);
+
+  for (const seedKey of seeds) {
+    if (pointInPolygon(
+      (()=>{const [q,r]=seedKey.split('_').map(Number);return q+r*0.5;})(),
+      (()=>{const [q,r]=seedKey.split('_').map(Number);return r*0.866;})()
+      , boundary)) {
+      // Found valid seed
+      const stack = [seedKey];
+      while (stack.length) {
+        const key = stack.pop();
+        if (visited.has(key)) continue;
+        visited.add(key);
+        const [q, r] = key.split('_').map(Number);
+        const px = q + r * 0.5, py = r * 0.866;
+        if (!pointInPolygon(px, py, boundary)) continue;
+        hexSet.add(key);
+        for (const [dq, dr] of DIR_VECTORS) {
+          const nk = `${q+dq}_${r+dr}`;
+          if (!visited.has(nk) && Math.abs(q+dq) < 200 && Math.abs(r+dr) < 200) stack.push(nk);
+        }
+      }
+      break; // found working seed
     }
   }
   return hexSet;
