@@ -617,6 +617,38 @@ let dragPoint = null;
 
 
 
+canvas.addEventListener('mousedown', e => {
+  // Middle button or shift+left: pan
+  if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY}; return;
+  }
+  // Right click or ctrl+left: lasso mode
+  if (e.button === 2 || (e.button === 0 && e.ctrlKey)) {
+    e.preventDefault();
+    lassoing = true;
+    const h = getHexAtEvent(e);
+    if (h && tool === 'terrain_lasso') applyTerrainLasso(h.q, h.r);
+    return;
+  }
+  // Left click: pan start
+  if (e.button === 0) {
+    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
+    mouseDown = true;
+    clickHex = getHexAtEvent(e);
+    // Check boundary dot dragging for province tool
+    if (selectedProvince && canvas._boundaryHexes && tool === 'province') {
+      const r = canvas.getBoundingClientRect();
+      const mx = (e.clientX - r.left - offX) / zoom;
+      const my = (e.clientY - r.top - offY) / zoom;
+      for (const [key, hex] of Object.entries(canvas._boundaryHexes || {})) {
+        const dx = mx - hex.x, dy = my - hex.y;
+        if (dx*dx + dy*dy < 36) { dragPoint = {q: hex.q, r: hex.r}; break; }
+      }
+    }
+  }
+});
+
+
 canvas.addEventListener('contextmenu', e => e.preventDefault()); // disable browser menu
 
 canvas.addEventListener('mousemove', e => {
