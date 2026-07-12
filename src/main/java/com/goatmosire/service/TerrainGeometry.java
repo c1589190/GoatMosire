@@ -142,6 +142,18 @@ public final class TerrainGeometry {
             }
             break; // found working seed
         }
+
+        // Also include boundary hexes (their centers are on polygon edge, may be missed)
+        for (MapData.Pt pt : poly) {
+            int[] h = pixelToHex(pt.x(), pt.y());
+            hexSet.add(hexKey(h[0], h[1]));
+            // Also add one neighbor inward for each boundary point (fuzz overlap)
+            for (int[] d : DIRS) {
+                int nq = h[0] + d[0], nr = h[1] + d[1];
+                String nk = hexKey(nq, nr);
+                if (hexSet.contains(nk)) break; // already in set, good
+            }
+        }
         return hexSet;
     }
 
