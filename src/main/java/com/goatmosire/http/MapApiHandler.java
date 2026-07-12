@@ -138,12 +138,12 @@ public class MapApiHandler implements HttpHandler {
         String worldId = sub.substring(1, sub.indexOf("/generate"));
         long seed = Long.parseLong(params.getOrDefault("seed", String.valueOf(System.currentTimeMillis())));
         int radius = Integer.parseInt(params.getOrDefault("radius", "80"));
-        int mainCount = Integer.parseInt(params.getOrDefault("main", "1"));
-        int islandCount = Integer.parseInt(params.getOrDefault("islands", "6"));
+        int mainCount = Integer.parseInt(params.getOrDefault("ridges", "4"));
+        int fragmentCount = Integer.parseInt(params.getOrDefault("fragments", "8"));
         double landRatio = Double.parseDouble(params.getOrDefault("land", "0.35"));
         double coastRoughness = Double.parseDouble(params.getOrDefault("roughness", "0.6"));
 
-        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, islandCount, landRatio, coastRoughness);
+        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, fragmentCount, landRatio, coastRoughness);
         mapService.saveFull(worldId, "n0000", map);
 
         sendJson(exchange, 200, Map.of(
