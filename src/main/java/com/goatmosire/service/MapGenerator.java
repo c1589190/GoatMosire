@@ -4,21 +4,15 @@ import com.gsim.map.MapData;
 import java.util.*;
 
 /**
- * Ridge-Diffusion continent generator with aggressive height field v3.5.
+ * Ridge-Diffusion continent generator v4 — slim ridges, wide plains.
  *
- * Key fixes (Grok review):
- *   - Exponential ridge decay (not soft Gaussian) → sharp mountain spines
- *   - Ridge height at 0.75 weight (not 0.45) → mountains dominate
- *   - Domain-warped coastlines with strong noise modulation → jagged edges
- *   - Power contrast enhancement → sharper terrain transitions
- *   - Radius-aware noise frequencies → works at any map size
- *
- * Height formula:
- *   ridgeH = exp(-ridgeDist * k)           // sharp falloff, k ~ 3.5 + weight
- *   multi  = n1*0.45 + n2*0.28 + n3*0.15  // 3-band noise
- *   height = ridgeH*0.75 + multi*0.55 - valley
- *   height = pow(max(0,height), 0.85)     // contrast boost
- *   seaLevel = base + coastNoise*0.45     // heavy coast modulation
+ * Grok feedback fixes:
+ *   - Steeper exponential decay (k=14-17) → thin mountain spines
+ *   - Ridge weight reduced to 0.55 (was 0.75) → mountains don't dominate
+ *   - Extra low-freq "shelf" noise → broad flat continental areas
+ *   - High-freq ridge-break noise → mountains fragmented, not continuous
+ *   - Wider plains band (0.22-0.48) → much more flat land
+ *   - Mountain threshold raised to 0.68 → only sharp peaks
  */
 public class MapGenerator {
 
@@ -36,12 +30,10 @@ public class MapGenerator {
         this.noise = new SimplexNoise(seed);
     }
 
-    /** Generate ridge lines radiating from center */
     public void placeRidges(int mainCount, int fragmentCount) {
         ridges = new ArrayList<>();
         double baseAngle = rng.nextDouble() * 2 * Math.PI;
 
-        // ── Main ridges: long sweeping curves ──
         for (int i = 0; i < mainCount; i++) {
             double angle = baseAngle + (2 * Math.PI * i / mainCount) + rng.nextGaussian() * 0.35;
             double len = radius * (0.85 + rng.nextDouble() * 0.15);
@@ -56,7 +48,6 @@ public class MapGenerator {
             ridges.add(new Ridge(pts, 0.8 + rng.nextDouble() * 0.4));
         }
 
-        // ── Fragment ridges (islands) ──
         for (int i = 0; i < fragmentCount; i++) {
             double angle = rng.nextDouble() * 2 * Math.PI;
             double dist = radius * (0.3 + rng.nextDouble() * 0.6);
@@ -72,20 +63,20 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Height Field (aggressive, Grok-calibrated)
+    //  Height Field v4 — Slim Ridges + Wide Plains
     // ═══════════════════════════════════════════════════════
 
     public MapData generate(double landRatio) {
         var hexes = new LinkedHashMap<String, MapData.HexCell>();
 
-        // Sea level baseline (lower = more land)
-        double baseSeaLevel = 0.30 + (1.0 - landRatio) * 0.05;
+        double baseSeaLevel = 0.22 + (1.0 - landRatio) * 0.04;
 
-        // Radius-aware noise frequencies
-        double nfLow  = 2.5 / radius;   // continental (~0.031 at r=80)
-        double nfMid  = 7.0 / radius;   // hills      (~0.088 at r=80)
-        double nfHigh = 18.0 / radius;  // detail     (~0.225 at r=80)
-        double nfCoast = 3.0 / radius;
+        // Radius-aware frequencies
+        double nfShelf = 1.8 / radius;  // continental shelf → broad flat areas
+        double nfLow   = 3.5 / radius;  // continental undulation
+        double nfMid   = 8.0 / radius;  // hills
+        double nfHigh  = 20.0 / radius; // detail + ridge breaking
+        double nfCoast = 3.5 / radius;
 
         for (int q = -radius; q <= radius; q++) {
             for (int r = -radius; r <= radius; r++) {
@@ -95,32 +86,37 @@ public class MapGenerator {
                 double px = q + r * 0.5;
                 double py = r * 0.8660254;
 
-                // ── Domain warp (curves everything naturally) ──
+                // ── Domain warp ──
                 double wpx = px + noise.noise2(px * 0.018, py * 0.018) * 10;
                 double wpy = py + noise.noise2(px * 0.018 + 70, py * 0.018 + 70) * 10;
 
-                // ── 1. Ridge elevation (exponential decay → sharp spines) ──
+                // ── 1. Ridge height (steep decay → visible but thin spines) ──
                 double ridgeH = computeRidgeHeight(wpx, wpy);
 
-                // ── 2. Multi-band noise ──
-                double n1 = noise.noise2(wpx * nfLow,  wpy * nfLow);       // continental
-                double n2 = noise.noise2(wpx * nfMid + 100,  wpy * nfMid + 100);  // hills
-                double n3 = noise.noise2(wpx * nfHigh + 300, wpy * nfHigh + 300); // detail
-                double multi = n1 * 0.45 + n2 * 0.28 + n3 * 0.15;
+                // ── 2. Continental shelf noise (broad uplift far from ridges) ──
+                double shelf = noise.noise2(wpx * nfShelf, wpy * nfShelf);
+                shelf = Math.max(0, shelf * 0.35 + 0.15); // bias positive
 
-                // ── 3. Valley penalty ──
+                // ── 4. Multi-band noise ──
+                double n1 = noise.noise2(wpx * nfLow  + 100, wpy * nfLow  + 100);
+                double n2 = noise.noise2(wpx * nfMid  + 300, wpy * nfMid  + 300);
+                double n3 = noise.noise2(wpx * nfHigh + 500, wpy * nfHigh + 500);
+                double multi = n1 * 0.40 + n2 * 0.25 + n3 * 0.12;
+
+                // ── 5. Valley penalty ──
                 double valley = computeValleyPenalty(wpx, wpy);
 
-                // ── 4. Height assembly ──
-                // Ridge dominates (0.75), noise fills gaps (0.55), valley carves
-                double height = ridgeH * 0.75 + multi * 0.55 - valley;
+                // ── 6. Height assembly ──
+                // Ridge: sharp but not dominant (0.55). Shelf: broad uplift (0.40).
+                // Multi: fills gaps (0.50). Valley: carves (subtracted).
+                double height = ridgeH * 0.55
+                              + shelf * 0.40
+                              + multi * 0.50
+                              - valley;
                 height = Math.max(0, height);
+                height = Math.pow(height, 0.85); // contrast
 
-                // ── 5. Contrast enhancement ──
-                // pow < 1.0 lifts mid-tones, making mountains sharper and coasts steeper
-                height = Math.pow(height, 0.85);
-
-                // ── 6. Aggressive coast noise ──
+                // ── 7. Coast noise ──
                 double coastNoise = noise.noise2(wpx * nfCoast + 77, wpy * nfCoast + 77);
                 double seaLevel = baseSeaLevel + coastNoise * 0.35;
 
@@ -129,7 +125,7 @@ public class MapGenerator {
                     continue;
                 }
 
-                // ── 7. Terrain classification (Grok-calibrated thresholds) ──
+                // ── 8. Terrain classification ──
                 String terrain = classifyByHeight(height, px, py);
                 hexes.put(MapData.hexKey(q, r),
                     new MapData.HexCell(terrainColor(terrain), terrain, null, null, "", 0));
@@ -142,31 +138,21 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Component Functions
+    //  Components
     // ═══════════════════════════════════════════════════════
 
-    /**
-     * Ridge height: exponential decay exp(-dist * k).
-     * k = 3.5 + ridgeWeight → sharper for high-weight ridges.
-     * Multiple ridges combine via max() — ridges stay independent.
-     * Returns the best height across all ridges.
-     */
+    /** Ridge height: steep exp(-d * k/radius). k=7-9 → visible but not fat. */
     private double computeRidgeHeight(double px, double py) {
         double best = 0;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
-            // Exponential falloff: sharp spine, fast decay
-            double k = 7.0 + r.weight * 3.0; // ~9.0-10.0 for main ridges → steeper
+            double k = 7.0 + r.weight * 2.0; // ~8.5-9.0 for main ridges
             double h = Math.exp(-d * k / radius);
             if (h > best) best = h;
         }
         return best;
     }
 
-    /**
-     * Valley penalty: if near two ridges simultaneously, depress height.
-     * Creates natural lowlands between mountain ranges.
-     */
     private double computeValleyPenalty(double px, double py) {
         if (ridges.size() < 2) return 0;
         double d1 = Double.MAX_VALUE, d2 = Double.MAX_VALUE;
@@ -181,20 +167,20 @@ public class MapGenerator {
     }
 
     /**
-     * Terrain by height (Grok-calibrated):
-     *   > 0.62 → mountain
-     *   0.45-0.62 → hills
-     *   0.28-0.45 → forest (moisture > -0.1) / plains
-     *   0.12-0.28 → plains
-     *   < 0.12 → swamp
+     * Terrain classification v4 (wider plains):
+     *   > 0.68 → mountain  (narrower, only sharp peaks)
+     *   0.48-0.68 → hills
+     *   0.22-0.48 → plains  (much wider band)
+     *   0.10-0.22 → forest / plains mix
+     *   < 0.10 → swamp
      */
     private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        if (height > 0.62) return "mountain";
-        if (height > 0.45) return "hills";
-        if (height > 0.28) return moisture > -0.1 ? "forest" : "plains";
-        if (height > 0.12) return "plains";
+        if (height > 0.68) return "mountain";
+        if (height > 0.48) return "hills";
+        if (height > 0.22) return "plains";
+        if (height > 0.10) return moisture > 0.1 ? "forest" : "plains";
         return moisture > 0.2 ? "swamp" : "plains";
     }
 
@@ -242,12 +228,11 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Simplex Noise (embedded)
+    //  Simplex Noise
     // ═══════════════════════════════════════════════════════
 
     static class SimplexNoise {
         private final long seed;
-
         SimplexNoise(long seed) { this.seed = seed; }
 
         double noise2(double x, double y) {
@@ -296,10 +281,6 @@ public class MapGenerator {
         tt.put("hills",    new MapData.TerrainType("丘陵", "#BDB76B", 2, 1, 3, 2,  "丘陵"));
         return tt;
     }
-
-    // ═══════════════════════════════════════════════════════
-    //  Public Factory
-    // ═══════════════════════════════════════════════════════
 
     public static MapData generate(String worldId, long seed, int mapRadius,
                                    int mainRidges, int fragments,
