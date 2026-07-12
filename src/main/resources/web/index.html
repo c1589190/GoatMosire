@@ -63,7 +63,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   <button id="btnPen" class="active" onclick="setTool('pen')" title="画笔 (P)">🖊</button>
   <button id="btnFill" onclick="setTool('fill')" title="填充 (F)">🪣</button>
   <button id="btnEraser" onclick="setTool('eraser')" title="擦除 (E)">🧹</button>
-  <button id="btnRiver" onclick="setTool('river')" title="河流 (R) — 点击放置河道点，自动寻路到水域">🌊</button>
+  <button id="btnRiver" onclick="setTool('river')" title="河流 — 点相邻格子拉河段">🌊</button>
+  <button id="btnProvince" onclick="setTool('province')" title="省份 — 点击圈边界，点起点闭合">🏛</button>
 
   <span style="color:var(--dim);margin:0 4px;">|</span>
   <span id="terrainButtons" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
@@ -298,9 +299,10 @@ function floodFill(sq, sr, targetColor) {
 
 function setTool(t) {
   tool = t;
-  ['Pen','Fill','Eraser','River'].forEach(id =>
+  ['Pen','Fill','Eraser','River','Province'].forEach(id =>
     document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
   riverStart = null;
+  provincePts = [];
 }
 
 // ── River constants ─────────────────────────────────────
@@ -398,6 +400,117 @@ function renderRivers() {
   ctx.restore();
 }
 
+// ── Province Tool ───────────────────────────────────────
+let provincePts = [];  // [{q, r}, ...] boundary waypoints
+
+function hexLine(aq, ar, bq, br) {
+  const dist = Math.max(Math.abs(bq - aq), Math.abs(br - ar), Math.abs((-bq-br) - (-aq-ar)));
+  const pts = [];
+  for (let i = 0; i <= dist; i++) {
+    const t = dist === 0 ? 0 : i / dist;
+    const pq = aq + (bq - aq) * t, pr = ar + (br - ar) * t;
+    const hq = Math.round(pq), hr = Math.round(pr);
+    // Re-round to valid axial coords
+    const hs = -hq - hr;
+    const fq = pq - hq, fr = pr - hr, fs = (-pq-pr) - hs;
+    let rq = hq, rr = hr;
+    if (Math.abs(fq) > Math.abs(fr) && Math.abs(fq) > Math.abs(fs)) rq = -hr - hs;
+    else if (Math.abs(fr) > Math.abs(fs)) rr = -hq - hs;
+    if (pts.length === 0 || pts[pts.length-1].q !== rq || pts[pts.length-1].r !== rr) {
+      pts.push({q: rq, r: rr});
+    }
+  }
+  return pts;
+}
+
+function addProvincePoint(q, r) {
+  // Click start point again → close loop & create province
+  if (provincePts.length > 2 && q === provincePts[0].q && r === provincePts[0].r) {
+    finishProvince();
+    return;
+  }
+  // Auto-connect from last point
+  if (provincePts.length > 0) {
+    const last = provincePts[provincePts.length - 1];
+    const line = hexLine(last.q, last.r, q, r);
+    for (let i = 1; i < line.length; i++) provincePts.push(line[i]);
+  } else {
+    provincePts.push({q, r});
+  }
+  setStatus(`省份边界: ${provincePts.length} 点 — 点击起点闭合`);
+  renderProvincePreview();
+}
+
+function finishProvince() {
+  // Flood fill interior from center of bounding box
+  const boundSet = new Set(provincePts.map(p => `${p.q}_${p.r}`));
+  // Find seed: hex inside boundary that's NOT on boundary
+  let minQ = Infinity, maxQ = -Infinity, minR = Infinity, maxR = -Infinity;
+  for (const p of provincePts) { minQ=Math.min(minQ,p.q); maxQ=Math.max(maxQ,p.q); minR=Math.min(minR,p.r); maxR=Math.max(maxR,p.r); }
+  let seed = null;
+  for (let q = minQ+1; q < maxQ && !seed; q++) {
+    for (let r = minR+1; r < maxR && !seed; r++) {
+      if (!boundSet.has(`${q}_${r}`) && mapData.hexes[`${q}_${r}`]) seed = {q, r};
+    }
+  }
+  if (!seed) { setStatus('省份: 无法找到内部区域'); provincePts=[]; return; }
+
+  // Flood fill to find all interior hexes
+  const interior = new Set();
+  const queue = [seed];
+  const visited = new Set();
+  interior.add(`${seed.q}_${seed.r}`);
+  while (queue.length) {
+    const {q, r} = queue.pop();
+    const k = `${q}_${r}`;
+    if (visited.has(k)) continue;
+    visited.add(k);
+    interior.add(k);
+    for (const [dq, dr] of DIR_VECTORS) {
+      const nk = `${q+dq}_${r+dr}`;
+      if (!boundSet.has(nk) && !visited.has(nk) && mapData.hexes[nk]) {
+        queue.push({q: q+dq, r: r+dr});
+      }
+    }
+  }
+
+  // Create province
+  const name = prompt('省份名称:', `省${Object.keys(mapData.provinces||{}).length + 1}`);
+  if (!name) { provincePts = []; render(); setStatus('省份: 已取消'); return; }
+  if (!mapData.provinces) mapData.provinces = {};
+  mapData.provinces[name] = {
+    hexes: [...interior],
+    color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'),
+    tag: '', description: ''
+  };
+  provincePts = [];
+  setTool('pen');
+  render();
+  showToast(`省份「${name}」已创建 (${interior.size} 格)`);
+  setStatus(`省份「${name}」: ${interior.size} 格`);
+}
+
+function renderProvincePreview() {
+  // Draw a temporary outline for the province boundary
+  render();
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 2 / zoom;
+  ctx.setLineDash([4/zoom, 4/zoom]);
+  ctx.beginPath();
+  for (let i = 0; i < provincePts.length; i++) {
+    const {x, y} = hexToPixel(provincePts[i].q, provincePts[i].r);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  if (provincePts.length > 2) ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
 // ── Interaction ─────────────────────────────────────────
 let clickHex = null;
 
@@ -425,13 +538,15 @@ canvas.addEventListener('mousemove', e => {
     const tt=terrainTypes[tn];
     tooltip.textContent=`(${h.q},${h.r}) ${tn}`+(tt?` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}`:'');
     if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
-    if (mouseDown && tool !== 'river') applyTool(h.q, h.r);
+    if (mouseDown && tool !== 'river' && tool !== 'province') applyTool(h.q, h.r);
   } else tooltip.style.display='none';
 });
 
 canvas.addEventListener('mouseup', () => {
   if (clickHex && tool === 'river') {
     addRiverWaypoint(clickHex.q, clickHex.r);
+  } else if (clickHex && tool === 'province') {
+    addProvincePoint(clickHex.q, clickHex.r);
   } else if (clickHex && mouseDown) {
     showHexInfo(clickHex.q, clickHex.r);
   }
