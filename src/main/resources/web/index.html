@@ -118,6 +118,23 @@ function initTags() {
   if (!mapData.tags) mapData.tags = {};
 }
 
+function saveTags() {
+  try {
+    localStorage.setItem('goatmosire_tags_' + MapAPI.worldId, JSON.stringify(mapData.tags||{}));
+  } catch(e) {}
+}
+
+function loadTags() {
+  try {
+    const saved = localStorage.getItem('goatmosire_tags_' + MapAPI.worldId);
+    if (saved) {
+      mapData.tags = JSON.parse(saved);
+    } else {
+      mapData.tags = {};
+    }
+  } catch(e) { mapData.tags = {}; }
+}
+
 function createTag() {
   const name = prompt('标签名称 (如: 王国A, 气候带):');
   if (!name) return;
@@ -128,6 +145,7 @@ function createTag() {
   selectedProvince = null;
   showTagList();
   render();
+  saveTags();
   showToast(`标签「${name}」已创建`);
 }
 
@@ -141,6 +159,7 @@ function deleteTag(name) {
   if (activeTag === name) activeTag = null;
   showTagList();
   render();
+  saveTags();
 }
 
 function selectTag(name) {
@@ -1152,7 +1171,7 @@ function onNodeChange() {
 async function loadMap() {
   try {
     mapData = await MapAPI.load();
-    initTags();
+    loadTags();
     if (mapData.terrainTypes && Object.keys(mapData.terrainTypes).length > 0) {
       buildTerrainButtons(mapData.terrainTypes);
     } else {
@@ -1171,7 +1190,7 @@ async function loadMap() {
   } catch(e) {
     // Create empty map
     mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
-    initTags();
+    loadTags();
     buildTerrainButtons(DEFAULT_TERRAINS);
     setStatus('空画布 — 点 🎲 生成新大陆');
   }
@@ -1190,6 +1209,7 @@ async function saveMap() {
     delete clean.tags;
     await MapAPI.save(clean);
     mapData.tags = tags; // restore
+    saveTags();
     showToast('已保存');
     setStatus('已保存');
   } catch(e) { showToast('保存失败: '+e.message); }
