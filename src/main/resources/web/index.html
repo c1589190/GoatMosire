@@ -694,6 +694,8 @@ canvas.addEventListener('mousemove', e => {
     const tn = cell?.terrain || 'empty';
     const tt = terrainTypes[tn];
     tooltip.textContent = `(${h.q},${h.r}) ${tn}` + (tt ? ` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}` : '');
+    if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
+    if (mouseDown && tool !== 'river' && tool !== 'province') applyTool(h.q, h.r);
   } else tooltip.style.display = 'none';
 });
 
