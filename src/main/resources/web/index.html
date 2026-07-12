@@ -327,8 +327,16 @@ function finishTerrainLasso() {
   const rawKeys = lassoPts.map(p => `${p.q}_${p.r}`);
   lassoPts = [];
 
-  // 1. Build boundary set from lasso hexes
+  // 1. Build boundary set from lasso hexes (with bridging lines)
   const boundSet = new Set(rawKeys);
+  // Bridge gaps between consecutive lasso hexes
+  for (let i = 0; i < rawKeys.length; i++) {
+    const j = (i + 1) % rawKeys.length;
+    const [aq, ar] = rawKeys[i].split('_').map(Number);
+    const [bq, br] = rawKeys[j].split('_').map(Number);
+    const line = hexLine(aq, ar, bq, br);
+    for (const pt of line) boundSet.add(`${pt.q}_${pt.r}`);
+  }
   
   // 2. Find seed hex inside the lasso (use centroid of lasso points)
   let sumQ = 0, sumR = 0;
