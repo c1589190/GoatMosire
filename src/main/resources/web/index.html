@@ -797,6 +797,23 @@ function updateProvDesc(name, val) {
 
 // ── Province Lasso ──────────────────────────────────────
 
+// Bresenham-style hex line between two axial coordinates
+function hexLine(aq, ar, bq, br) {
+  const dist = (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq-ar + bq+br)) / 2;
+  if (dist === 0) return [{q: aq, r: ar}];
+  const pts = [];
+  for (let i = 0; i <= dist; i++) {
+    const t = i / dist;
+    const fq = aq + (bq - aq) * t, fr = ar + (br - ar) * t;
+    let q = Math.round(fq), r = Math.round(fr);
+    const dq = Math.abs(fq - q), dr = Math.abs(fr - r), ds = Math.abs(-fq-fr - (-q-r));
+    if (dq > dr && dq > ds) q = -r - (-q-r);
+    else if (dr > ds) r = -q - (-q-r);
+    pts.push({q, r});
+  }
+  return pts;
+}
+
 function addProvincePoint(q, r) {
   if (provinceLasso.length > 0) {
     const last = provinceLasso[provinceLasso.length - 1];
