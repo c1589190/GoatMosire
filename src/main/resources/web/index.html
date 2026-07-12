@@ -323,7 +323,16 @@ async function init() {
     const {worlds} = await MapAPI.listWorlds();
     const sel = document.getElementById('worldSelect');
     sel.innerHTML = worlds.map(w => `<option value="${w}">${w}</option>`).join('');
-    if (worlds.length > 0) { sel.value = MapAPI.worldId; await loadMap(); }
+    if (worlds.length === 0) { setStatus('没有可用的世界地图'); return; }
+    // Auto-select: use URL param worldId if in list, otherwise first world
+    if (worlds.includes(MapAPI.worldId)) {
+      sel.value = MapAPI.worldId;
+    } else {
+      sel.value = worlds[0];
+      MapAPI.worldId = worlds[0];
+    }
+    await loadNodes();
+    await loadMap();
   } catch(e) { showToast('加载世界列表失败: '+e.message); }
 }
 
