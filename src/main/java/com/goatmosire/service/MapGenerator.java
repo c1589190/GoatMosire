@@ -4,17 +4,21 @@ import com.gsim.map.MapData;
 import java.util.*;
 
 /**
- * Ridge-Diffusion continent generator with continuous height field.
+ * Ridge-Diffusion continent generator with aggressive height field v3.5.
  *
- * Height formula (per hex):
- *   height = ridgeElevation × 0.45        // Gaussian bell around ridge lines
- *          + octave1 × 0.25               // low-freq continental undulation
- *          + octave2 × 0.18               // mid-freq hill folding
- *          + octave3 × 0.12               // high-freq surface detail
- *          - valleyPenalty                // depression between neighboring ridges
- *          + domainWarp                   // coordinate distortion for natural curves
+ * Key fixes (Grok review):
+ *   - Exponential ridge decay (not soft Gaussian) → sharp mountain spines
+ *   - Ridge height at 0.75 weight (not 0.45) → mountains dominate
+ *   - Domain-warped coastlines with strong noise modulation → jagged edges
+ *   - Power contrast enhancement → sharper terrain transitions
+ *   - Radius-aware noise frequencies → works at any map size
  *
- * Sea level is noise-modulated; terrain classified by final height thresholds.
+ * Height formula:
+ *   ridgeH = exp(-ridgeDist * k)           // sharp falloff, k ~ 3.5 + weight
+ *   multi  = n1*0.45 + n2*0.28 + n3*0.15  // 3-band noise
+ *   height = ridgeH*0.75 + multi*0.55 - valley
+ *   height = pow(max(0,height), 0.85)     // contrast boost
+ *   seaLevel = base + coastNoise*0.45     // heavy coast modulation
  */
 public class MapGenerator {
 
@@ -37,20 +41,17 @@ public class MapGenerator {
         ridges = new ArrayList<>();
         double baseAngle = rng.nextDouble() * 2 * Math.PI;
 
-        // ── Main ridges: long sweeping curves across the map ──
+        // ── Main ridges: long sweeping curves ──
         for (int i = 0; i < mainCount; i++) {
-            double angle = baseAngle + (2 * Math.PI * i / mainCount) + rng.nextGaussian() * 0.4;
+            double angle = baseAngle + (2 * Math.PI * i / mainCount) + rng.nextGaussian() * 0.35;
             double len = radius * (0.85 + rng.nextDouble() * 0.15);
             List<Pt> pts = new ArrayList<>();
-            // Start near center
-            pts.add(new Pt(rng.nextGaussian() * radius * 0.04, rng.nextGaussian() * radius * 0.04));
-            // Mid point
-            double mx = Math.cos(angle) * len * 0.4 + rng.nextGaussian() * radius * 0.08;
-            double my = Math.sin(angle) * len * 0.4 + rng.nextGaussian() * radius * 0.08;
+            pts.add(new Pt(rng.nextGaussian() * radius * 0.03, rng.nextGaussian() * radius * 0.03));
+            double mx = Math.cos(angle) * len * 0.4 + rng.nextGaussian() * radius * 0.06;
+            double my = Math.sin(angle) * len * 0.4 + rng.nextGaussian() * radius * 0.06;
             pts.add(new Pt(mx, my));
-            // End near edge
-            double ex = Math.cos(angle) * len + rng.nextGaussian() * radius * 0.06;
-            double ey = Math.sin(angle) * len + rng.nextGaussian() * radius * 0.06;
+            double ex = Math.cos(angle) * len + rng.nextGaussian() * radius * 0.05;
+            double ey = Math.sin(angle) * len + rng.nextGaussian() * radius * 0.05;
             pts.add(new Pt(ex, ey));
             ridges.add(new Ridge(pts, 0.8 + rng.nextDouble() * 0.4));
         }
@@ -64,21 +65,27 @@ public class MapGenerator {
             double flen = radius * (0.04 + rng.nextDouble() * 0.12);
             double fangle = angle + rng.nextGaussian() * 0.6;
             List<Pt> pts = new ArrayList<>();
-            pts.add(new Pt(cx - Math.cos(fangle) * flen * 0.5, cy - Math.sin(fangle) * flen * 0.5));
-            pts.add(new Pt(cx + Math.cos(fangle) * flen * 0.5, cy + Math.sin(fangle) * flen * 0.5));
+            pts.add(new Pt(cx - Math.cos(fangle)*flen*0.5, cy - Math.sin(fangle)*flen*0.5));
+            pts.add(new Pt(cx + Math.cos(fangle)*flen*0.5, cy + Math.sin(fangle)*flen*0.5));
             ridges.add(new Ridge(pts, 0.15 + rng.nextDouble() * 0.25));
         }
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Height Field Computation
+    //  Height Field (aggressive, Grok-calibrated)
     // ═══════════════════════════════════════════════════════
 
     public MapData generate(double landRatio) {
         var hexes = new LinkedHashMap<String, MapData.HexCell>();
 
-        // Sea level: landRatio controls threshold
-        double baseSeaLevel = 0.10 + (1.0 - landRatio) * 0.05; // ~0.13 at landRatio=0.4
+        // Sea level baseline (lower = more land)
+        double baseSeaLevel = 0.30 + (1.0 - landRatio) * 0.05;
+
+        // Radius-aware noise frequencies
+        double nfLow  = 2.5 / radius;   // continental (~0.031 at r=80)
+        double nfMid  = 7.0 / radius;   // hills      (~0.088 at r=80)
+        double nfHigh = 18.0 / radius;  // detail     (~0.225 at r=80)
+        double nfCoast = 3.0 / radius;
 
         for (int q = -radius; q <= radius; q++) {
             for (int r = -radius; r <= radius; r++) {
@@ -88,48 +95,42 @@ public class MapGenerator {
                 double px = q + r * 0.5;
                 double py = r * 0.8660254;
 
-                // ── Domain warping (curves the ridge lines naturally) ──
-                double warpX = noise.noise2(px * 0.006 + 50, py * 0.006 + 50) * radius * 0.08;
-                double warpY = noise.noise2(px * 0.006 + 200, py * 0.006 + 200) * radius * 0.08;
-                double spx = px + warpX;
-                double spy = py + warpY;
+                // ── Domain warp (curves everything naturally) ──
+                double wpx = px + noise.noise2(px * 0.018, py * 0.018) * 10;
+                double wpy = py + noise.noise2(px * 0.018 + 70, py * 0.018 + 70) * 10;
 
-                // ── 1. Ridge elevation (Gaussian bell from nearest ridge) ──
-                double[] ridgeInfo = ridgeElevation(spx, spy);
-                double ridgeH = ridgeInfo[0];
-                double ridgeDist = ridgeInfo[1];
-                double nearestWeight = ridgeInfo[2];
+                // ── 1. Ridge elevation (exponential decay → sharp spines) ──
+                double ridgeH = computeRidgeHeight(wpx, wpy);
 
-                // ── 2. Multi-octave noise ──
-                double n1 = noise.noise2(spx * 0.005, spy * 0.005);      // continental
-                double n2 = noise.noise2(spx * 0.018 + 100, spy * 0.018 + 100); // hills
-                double n3 = noise.noise2(spx * 0.055 + 300, spy * 0.055 + 300); // detail
+                // ── 2. Multi-band noise ──
+                double n1 = noise.noise2(wpx * nfLow,  wpy * nfLow);       // continental
+                double n2 = noise.noise2(wpx * nfMid + 100,  wpy * nfMid + 100);  // hills
+                double n3 = noise.noise2(wpx * nfHigh + 300, wpy * nfHigh + 300); // detail
+                double multi = n1 * 0.45 + n2 * 0.28 + n3 * 0.15;
 
-                // ── 3. Valley penalty (depression between close ridges) ──
-                double valleyPenalty = computeValleyPenalty(spx, spy);
+                // ── 3. Valley penalty ──
+                double valley = computeValleyPenalty(wpx, wpy);
 
-                // ── 4. Combine into final height ──
-                double height = ridgeH * 0.45
-                              + n1 * 0.25
-                              + n2 * 0.18
-                              + n3 * 0.12
-                              - valleyPenalty;
+                // ── 4. Height assembly ──
+                // Ridge dominates (0.75), noise fills gaps (0.55), valley carves
+                double height = ridgeH * 0.75 + multi * 0.55 - valley;
+                height = Math.max(0, height);
 
-                // Clamp to 0..1
-                height = Math.max(0, Math.min(1, height));
+                // ── 5. Contrast enhancement ──
+                // pow < 1.0 lifts mid-tones, making mountains sharper and coasts steeper
+                height = Math.pow(height, 0.85);
 
-                // ── 5. Modulated sea level ──
-                double coastNoise = noise.noise2(px * 0.01 + 77, py * 0.01 + 77);
-                double seaLevel = baseSeaLevel + coastNoise * 0.06;
+                // ── 6. Aggressive coast noise ──
+                double coastNoise = noise.noise2(wpx * nfCoast + 77, wpy * nfCoast + 77);
+                double seaLevel = baseSeaLevel + coastNoise * 0.35;
 
-                // ── 6. Land/water decision ──
                 if (height < seaLevel) {
                     hexes.put(MapData.hexKey(q, r), waterCell());
                     continue;
                 }
 
-                // ── 7. Terrain classification by height ──
-                String terrain = classifyByHeight(height, ridgeDist, nearestWeight, px, py);
+                // ── 7. Terrain classification (Grok-calibrated thresholds) ──
+                String terrain = classifyByHeight(height, px, py);
                 hexes.put(MapData.hexKey(q, r),
                     new MapData.HexCell(terrainColor(terrain), terrain, null, null, "", 0));
             }
@@ -145,66 +146,60 @@ public class MapGenerator {
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Ridge elevation: Gaussian bell centered on nearest ridge.
-     * Returns [elevation, distanceToRidge, ridgeWeight].
-     * Multiple ridges combine via max() — ridges stay independent spines.
+     * Ridge height: exponential decay exp(-dist * k).
+     * k = 3.5 + ridgeWeight → sharper for high-weight ridges.
+     * Multiple ridges combine via max() — ridges stay independent.
+     * Returns the best height across all ridges.
      */
-    private double[] ridgeElevation(double px, double py) {
-        double bestElev = 0, bestDist = Double.MAX_VALUE, bestWeight = 0;
-
+    private double computeRidgeHeight(double px, double py) {
+        double best = 0;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
-            // Sigma: wider ridges (higher weight) have broader mountains
-            double sigma = r.weight * radius * 0.12;  // wider coverage
-            double elev = Math.exp(-(d * d) / (2 * sigma * sigma));
-            if (elev > bestElev) {
-                bestElev = elev;
-                bestDist = d;
-                bestWeight = r.weight;
-            }
+            // Exponential falloff: sharp spine, fast decay
+            double k = 7.0 + r.weight * 3.0; // ~9.0-10.0 for main ridges → steeper
+            double h = Math.exp(-d * k / radius);
+            if (h > best) best = h;
         }
-        return new double[]{bestElev, bestDist, bestWeight};
+        return best;
     }
 
     /**
-     * Valley penalty: if a point is close to TWO ridges, depress the height.
-     * This creates natural valleys between mountain ranges.
+     * Valley penalty: if near two ridges simultaneously, depress height.
+     * Creates natural lowlands between mountain ranges.
      */
     private double computeValleyPenalty(double px, double py) {
         if (ridges.size() < 2) return 0;
-
-        // Find two closest ridge distances
         double d1 = Double.MAX_VALUE, d2 = Double.MAX_VALUE;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
             if (d < d1) { d2 = d1; d1 = d; }
             else if (d < d2) { d2 = d; }
         }
-
-        // Penalty proportional to how close BOTH ridges are
-        double sigma = radius * 0.12;
-        double nearBoth = Math.exp(-d1 * d1 / (2 * sigma * sigma))
-                        * Math.exp(-d2 * d2 / (2 * sigma * sigma));
-        return nearBoth * 0.35;
+        double sigma = radius * 0.10;
+        return Math.exp(-d1 * d1 / (2 * sigma * sigma))
+             * Math.exp(-d2 * d2 / (2 * sigma * sigma)) * 0.30;
     }
 
     /**
-     * Terrain classification based on final height (not ridge distance).
-     * Uses moisture noise for forest distribution.
+     * Terrain by height (Grok-calibrated):
+     *   > 0.62 → mountain
+     *   0.45-0.62 → hills
+     *   0.28-0.45 → forest (moisture > -0.1) / plains
+     *   0.12-0.28 → plains
+     *   < 0.12 → swamp
      */
-    private String classifyByHeight(double height, double ridgeDist, double ridgeWeight, double px, double py) {
+    private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        if (height > 0.72) return "mountain";
-        if (height > 0.52) return "hills";     // highlands → hills
-        if (height > 0.32) return moisture > -0.1 ? "forest" : "plains";
+        if (height > 0.62) return "mountain";
+        if (height > 0.45) return "hills";
+        if (height > 0.28) return moisture > -0.1 ? "forest" : "plains";
         if (height > 0.12) return "plains";
-        // Low coastal: swamp near water edge
         return moisture > 0.2 ? "swamp" : "plains";
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Geometry Helpers
+    //  Geometry
     // ═══════════════════════════════════════════════════════
 
     private double distToRidge(double px, double py, List<Pt> pts) {
@@ -228,7 +223,7 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Terrain Helpers
+    //  Helpers
     // ═══════════════════════════════════════════════════════
 
     private MapData.HexCell waterCell() {
@@ -247,7 +242,7 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Simplex Noise (embedded, no external deps)
+    //  Simplex Noise (embedded)
     // ═══════════════════════════════════════════════════════
 
     static class SimplexNoise {
@@ -255,16 +250,13 @@ public class MapGenerator {
 
         SimplexNoise(long seed) { this.seed = seed; }
 
-        /** Returns value in roughly [-1, 1] range */
         double noise2(double x, double y) {
             int xi = (int) Math.floor(x), yi = (int) Math.floor(y);
             double xf = x - xi, yf = y - yi;
-
             double n00 = dotGrid(xi, yi, xf, yf);
             double n10 = dotGrid(xi + 1, yi, xf - 1, yf);
             double n01 = dotGrid(xi, yi + 1, xf, yf - 1);
             double n11 = dotGrid(xi + 1, yi + 1, xf - 1, yf - 1);
-
             double u = smooth(xf), v = smooth(yf);
             return lerp(lerp(n00, n10, u), lerp(n01, n11, u), v);
         }
