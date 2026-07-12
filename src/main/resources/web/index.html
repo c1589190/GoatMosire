@@ -64,7 +64,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   <button id="btnFill" onclick="setTool('fill')" title="填充">🪣</button>
   <button id="btnEraser" onclick="setTool('eraser')" title="擦除">🧹</button>
   <button id="btnRiver" onclick="setTool('river')" title="河流 — 点相邻格子拉河段">🌊</button>
-  <button id="btnProvince" onclick="setTool('province')" title="省份 — 点击圈边界，点起点闭合">🏛</button>
+  <button id="btnProvince" onclick="setTool('province')" title="区域 — 右键拖套索创建">📐</button>
+  <button id="btnNewRegion" onclick="createEmptyRegion()" title="新建空区域">➕</button>
   <button id="btnGenerate" onclick="generateWorld()" title="生成大陆 — Voronoi+噪声随机地形">🎲</button>
 
   <span style="color:var(--dim);margin:0 4px;">|</span>
@@ -593,7 +594,18 @@ async function generateWorld() {
   }
 }
 
-// ── Province Tool ───────────────────────────────────────
+function createEmptyRegion() {
+  const name = prompt('区域名称:', '区域'+(Object.keys(mapData.provinces||{}).length+1));
+  if (!name) return;
+  const color = prompt('区域颜色 (hex):', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
+  if (!mapData.provinces) mapData.provinces = {};
+  mapData.provinces[name] = {hexes:[], color:color||'#ff0000', tag:'', description:''};
+  selectedProvince = name;
+  showProvinceList(); render();
+}
+
+
+// ── Province Tool ──
 
 function showProvinceList() {
   const panel = document.getElementById('infoPanel');
@@ -603,9 +615,9 @@ function showProvinceList() {
   const names = Object.keys(provs);
   const mapTotal = Object.keys(mapData?.hexes || {}).length;
 
-  title.textContent = `🏛 省份 (${names.length})`;
+  title.textContent = `📐 区域 (${names.length})`;
   if (names.length === 0) {
-    body.innerHTML = '<div style="color:var(--dim);font-size:11px">点击地图圈边界，再点起点闭合创建省份</div>';
+    body.innerHTML = '<div style="color:var(--dim);font-size:11px">📐右键拖圈创建区域，或➕按钮新建空区域</div>' + '<button onclick="createEmptyRegion()" style="margin-top:4px;font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建区域</button>';
   } else {
     body.innerHTML = names.map(name => {
       const p = provs[name];
@@ -617,6 +629,10 @@ function showProvinceList() {
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color||'#888'};margin-right:6px"></span>
         <b>${name}</b> <span style="color:${ratio>0.8?'orange':'var(--dim)'};font-size:10px">${(p.hexes||[]).length}格${warn}</span>
         <button onclick="event.stopPropagation();deleteProvince('${name}')" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="删除">✕</button>
+        <div style="margin-top:2px;font-size:10px;color:var(--dim)">
+          tag: <input value="${p.tag||''}" onchange="updateProvTag('${name}',this.value)" style="width:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:10px;padding:1px 3px">
+          颜色: <input type="color" value="${p.color||'#ff0000'}" onchange="updateProvColor('${name}',this.value)" style="width:20px;height:16px;border:none;cursor:pointer;vertical-align:middle">
+        </div>
       </div>`;
     }).join('');
   }
@@ -631,7 +647,7 @@ function selectProvince(name) {
 }
 
 function deleteProvince(name) {
-  if (confirm(`删除省份「${name}」？`)) {
+  if (confirm(`删除区域「${name}」？`)) {
     delete mapData.provinces[name];
     if (selectedProvince === name) selectedProvince = null;
     showProvinceList();
@@ -926,10 +942,11 @@ function finishProvinceLasso() {
       if(!boundSet.has(nk)&&!visited.has(nk)&&mapData.hexes[nk]) queue.push({q:q+dq,r:r+dr});
     }
   }
-  const name = prompt('省份名称:', '省'+(Object.keys(mapData.provinces||{}).length+1));
+  const name = prompt('区域名称:', '区域'+(Object.keys(mapData.provinces||{}).length+1));
+  const color = prompt('区域颜色 (hex):', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
   if (!name) { provinceLasso=[]; render(); return; }
   if (!mapData.provinces) mapData.provinces = {};
-  mapData.provinces[name] = {hexes:[...interior,...boundSet], color:'#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'), tag:'',description:''};
+  mapData.provinces[name] = {hexes:[...interior,...boundSet], color:color||'#ff0000', tag:'',description:''};
   provinceLasso=[]; selectedProvince=name; showProvinceList(); render();
 }
 
