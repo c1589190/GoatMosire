@@ -110,7 +110,78 @@ let terrainTypes = DEFAULT_TERRAINS;   // active terrain palette
 let activeTerrain = 'plains';          // currently selected terrain
 let tool = 'pen';
 let selectedProvince = null;
-let activeTag = null;  // tag filter: show all regions with this tag
+let activeTag = null;  // currently selected tag for region creation
+
+// ── Tag Manager ────────────────────────────────────────
+
+function initTags() {
+  if (!mapData.tags) mapData.tags = {};
+}
+
+function createTag() {
+  const name = prompt('标签名称 (如: 王国A, 气候带):');
+  if (!name) return;
+  if (mapData.tags[name]) { showToast('标签已存在'); return; }
+  const color = prompt('标签颜色:', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
+  mapData.tags[name] = {color: color||'#ff0000', description: ''};
+  activeTag = name;
+  selectedProvince = null;
+  showTagList();
+  render();
+  showToast(`标签「${name}」已创建`);
+}
+
+function deleteTag(name) {
+  if (!confirm(`删除标签「${name}」？其下区域不会被删除。`)) return;
+  delete mapData.tags[name];
+  // Keep regions, just clear their tag
+  for (const [rn, r] of Object.entries(mapData.provinces||{})) {
+    if (r.tag === name) r.tag = '';
+  }
+  if (activeTag === name) activeTag = null;
+  showTagList();
+  render();
+}
+
+function selectTag(name) {
+  activeTag = name;
+  selectedProvince = null;
+  showTagList();
+  render();
+}
+
+function showTagList() {
+  initTags();
+  const body = document.getElementById('infoBody');
+  const title = document.getElementById('infoTitle');
+  const tags = Object.entries(mapData.tags);
+  
+  let html = '<div style="margin-bottom:4px"><button onclick="createTag()" style="font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建标签</button></div>';
+  
+  if (tags.length === 0) {
+    html += '<div style="color:var(--dim);font-size:11px;padding:4px">暂无标签，点击上方新建</div>';
+  } else {
+    html += tags.map(([name, t]) => {
+      const regions = Object.entries(mapData.provinces||{}).filter(([rn,r]) => r.tag === name);
+      const active = activeTag === name ? 'border:2px solid var(--accent);' : '';
+      return `<div style="margin-bottom:4px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${active}" onclick="selectTag('${name}')">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${t.color};margin-right:4px"></span><b>${name}</b></span>
+          <span style="font-size:10px;color:var(--dim)">${regions.length} 区域</span>
+          <button onclick="event.stopPropagation();deleteTag('${name}')" style="font-size:12px;background:none;border:none;color:var(--dim);cursor:pointer">✕</button>
+        </div>
+        ${regions.length > 0 ? regions.map(([rn,r]) =>
+          `<div style="margin-left:12px;margin-top:3px;font-size:10px;cursor:pointer;padding:2px;${selectedProvince===rn?'background:#333;border-radius:2px;':''}" onclick="event.stopPropagation();selectProvince('${rn}')">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:1px;background:${r.color||t.color};margin-right:4px"></span>${rn} (${r.hexes.length}格)
+          </div>`
+        ).join('') : '<div style="margin-left:12px;font-size:9px;color:var(--dim)">右键在地图上圈地创建区域</div>'}
+      </div>`;
+    }).join('');
+  }
+  title.textContent = `📐 标签管理`;
+  body.innerHTML = html;
+  document.getElementById('infoPanel').style.display = 'block';
+}
 let provinceLasso = [];
 let zoom = 1;
 let offX = 0, offY = 0;
@@ -480,7 +551,7 @@ function setTool(t) {
   riverStart = null;
   provinceLasso = [];
   lassoPts = [];
-  if (t === 'province') showProvinceList();
+  if (t === 'province') showTagList();
   else { const ip = document.getElementById('infoPanel'); if (ip) ip.style.display = 'none'; }
 }
 
@@ -596,13 +667,16 @@ async function generateWorld() {
 }
 
 function createEmptyRegion() {
+  const defTag = activeTag || '';
+  const tagColor = activeTag && mapData.tags[activeTag] ? mapData.tags[activeTag].color : null;
+  const defColor = tagColor || '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0');
   const name = prompt('区域名称:', '区域'+(Object.keys(mapData.provinces||{}).length+1));
   if (!name) return;
-  const color = prompt('区域颜色 (hex):', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
+  const color = prompt('区域颜色:', defColor);
   if (!mapData.provinces) mapData.provinces = {};
-  mapData.provinces[name] = {hexes:[], color:color||'#ff0000', tag:'', description:''};
+  mapData.provinces[name] = {hexes:[], color:color||'#ff0000', tag:activeTag||'', description:''};
   selectedProvince = name;
-  showProvinceList(); render();
+  showTagList(); render();
 }
 
 
@@ -661,16 +735,15 @@ function filterByTag(tag) {
 
 function selectProvince(name) {
   selectedProvince = name;
-  showProvinceList();
+  showTagList();
   render();
-  renderProvinceHighlight();
 }
 
 function deleteProvince(name) {
   if (confirm(`删除区域「${name}」？`)) {
     delete mapData.provinces[name];
     if (selectedProvince === name) selectedProvince = null;
-    showProvinceList();
+    showTagList();
     render();
   }
 }
@@ -983,7 +1056,7 @@ function finishProvinceLasso() {
   const color = prompt('区域颜色 (hex):', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
   if (!name) { provinceLasso=[]; render(); return; }
   if (!mapData.provinces) mapData.provinces = {};
-  mapData.provinces[name] = {hexes:[...interior,...boundSet], color:color||'#ff0000', tag:'',description:''};
+  mapData.provinces[name] = {hexes:[...interior,...boundSet], color:color||'#ff0000', tag:activeTag||'',description:''};
   provinceLasso=[]; selectedProvince=name; showProvinceList(); render();
 }
 
@@ -1009,7 +1082,8 @@ async function init() {
   try { resizeCanvas(); } catch(e) {}
 
   // Start with empty canvas (don't wait for fetch)
-  mapData = {hexes:{}, terrainBlocks:[], provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:80, hexOrientation:false, rivers:[], roads:[]};
+  mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
+  initTags();
   setStatus('空画布就绪 — 右键拖动圈地形');
 
   // Populate world selector with known fallback
@@ -1072,6 +1146,7 @@ function onNodeChange() {
 async function loadMap() {
   try {
     mapData = await MapAPI.load();
+    initTags();
     if (mapData.terrainTypes && Object.keys(mapData.terrainTypes).length > 0) {
       buildTerrainButtons(mapData.terrainTypes);
     } else {
@@ -1088,7 +1163,8 @@ async function loadMap() {
     setStatus(`已加载: ${MapAPI.worldId} (${mapData.terrainBlocks.length} 地形块)`);
   } catch(e) {
     // Create empty map
-    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
+    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
+    initTags();
     buildTerrainButtons(DEFAULT_TERRAINS);
     setStatus('空画布 — 点 🎲 生成新大陆');
   }
