@@ -151,7 +151,52 @@ function hexCorners(cx, cy, size) {
   return pts;
 }
 
-// ── Terrain Palette ─────────────────────────────────────
+// ── Paint Tools ─────────────────────────────────────────
+
+function applyTool(q, r) {
+  const key = q + '_' + r;
+  if (!mapData.hexes) mapData.hexes = {};
+  if (tool === 'eraser') {
+    delete mapData.hexes[key];
+  } else if (tool === 'fill') {
+    floodFill(key, activeTerrain);
+  } else {
+    // Pen: apply terrain
+    const cell = mapData.hexes[key];
+    if (!cell) {
+      mapData.hexes[key] = {color: getTerrainColor(activeTerrain), terrain: activeTerrain, riverMask: 0};
+    } else {
+      cell.color = getTerrainColor(activeTerrain);
+      cell.terrain = activeTerrain;
+    }
+  }
+  render();
+}
+
+function floodFill(seedKey, terrain) {
+  if (!mapData.hexes[seedKey]) return;
+  const targetTerrain = mapData.hexes[seedKey].terrain;
+  if (targetTerrain === terrain) return;
+  const color = getTerrainColor(terrain);
+  const visited = new Set();
+  const stack = [seedKey];
+  const MAX_FILL = 5000;
+  while (stack.length && visited.size < MAX_FILL) {
+    const key = stack.pop();
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const cell = mapData.hexes[key];
+    if (!cell || cell.terrain !== targetTerrain) continue;
+    cell.color = color;
+    cell.terrain = terrain;
+    const [q, r] = key.split('_').map(Number);
+    for (const [dq, dr] of DIR_VECTORS) {
+      stack.push((q+dq) + '_' + (r+dr));
+    }
+  }
+}
+
+// ── Terrain Color Resolver ──────────────────────────────
 function buildTerrainButtons(types) {
   terrainTypes = types || DEFAULT_TERRAINS;
   const container = document.getElementById('terrainButtons');
