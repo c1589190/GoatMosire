@@ -297,21 +297,44 @@ function render() {
     drawn++;
   }
 
-  // Also draw hexes covered by terrain blocks that aren't in mapData.hexes\n  const blocks = (mapData.terrainBlocks || []).filter(b => b.boundary && b.boundary.length >= 3);\n  if (blocks.length > 0) {\n    // Expand viewport range in hex coords\n    const tl = pixelToHex(vpLeft, vpTop);\n    const br = pixelToHex(vpRight, vpBottom);\n    for (let q = tl.q - 1; q <= br.q + 1; q++) {\n      for (let r = Math.max(tl.r, br.r) - 1; r <= Math.max(tl.r, br.r) + 1; r++) {\n        const key = q + '_' + r;\n        if (mapData.hexes && mapData.hexes[key]) continue; // already drawn\n        const {x: hx, y: hy} = hexToPixel(q, r);\n        if (hx < vpLeft || hx > vpRight || hy < vpTop*0.866 || hy > vpBottom*0.866) continue;\n        for (let i = blocks.length - 1; i >= 0; i--) {\n          if (pointInPolygon(hx, hy, blocks[i].boundary)) {\n            const color = getTerrainColor(blocks[i].terrain);\n            if (!byColor[color]) byColor[color] = [];\n            byColor[color].push({x: hx, y: hy});\n            drawn++;\n            break;\n          }\n        }\n      }\n    }\n  }
+  // Also draw hexes covered by terrain blocks that aren't in mapData.hexes
+  const blocks = (mapData.terrainBlocks || []).filter(b => b.boundary && b.boundary.length >= 3);
+  if (blocks.length > 0) {
+    // Expand viewport range in hex coords
+    const tl = pixelToHex(vpLeft, vpTop);
+    const br = pixelToHex(vpRight, vpBottom);
+    for (let q = tl.q - 1; q <= br.q + 1; q++) {
+      for (let r = Math.max(tl.r, br.r) - 1; r <= Math.max(tl.r, br.r) + 1; r++) {
+        const key = q + '_' + r;
+        if (mapData.hexes && mapData.hexes[key]) continue; // already drawn
+        const {x: hx, y: hy} = hexToPixel(q, r);
+        if (hx < vpLeft || hx > vpRight || hy < vpTop*0.866 || hy > vpBottom*0.866) continue;
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          if (pointInPolygon(hx, hy, blocks[i].boundary)) {
+            const color = getTerrainColor(blocks[i].terrain);
+            if (!byColor[color]) byColor[color] = [];
+            byColor[color].push({x: hx, y: hy});
+            drawn++;
+            break;
+          }
+        }
+      }
+    }
+  }
 
   for (const [color, hexes] of Object.entries(byColor)) {
     ctx.fillStyle = color;
     ctx.strokeStyle = '#ffffff18';
     ctx.lineWidth = 0.5 / zoom;
-    ctx.beginPath();
     for (const {x, y} of hexes) {
+      ctx.beginPath();
       const corners = hexCorners(x, y, GRID - 1);
       ctx.moveTo(corners[0][0], corners[0][1]);
       for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
       ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
     }
-    ctx.fill();
-    ctx.stroke();
   }
 
   if (hexCount > 1000) {
