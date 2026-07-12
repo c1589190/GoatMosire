@@ -299,14 +299,12 @@ function setTool(t) {
   tool = t;
   ['Pen','Fill','Eraser','River'].forEach(id =>
     document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
-  riverWaypoints = [];  // reset river when switching tools
+  riverStart = null;
 }
 
-// ── River Tool ──────────────────────────────────────────
-// Edge direction vectors: 0=E,1=SE,2=SW,3=W,4=NW,5=NE
+// ── River constants ─────────────────────────────────────
 const DIR_VECTORS = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
 const OPPOSITE_DIR = [3,4,5,0,1,2];
-
 function direction(fromQ, fromR, toQ, toR) {
   const dq = toQ - fromQ, dr = toR - fromR;
   for (let d = 0; d < 6; d++) {
@@ -315,39 +313,29 @@ function direction(fromQ, fromR, toQ, toR) {
   return -1;
 }
 
-async function addRiverWaypoint(q, r) {
-  setStatus('河流: 计算路径...');
-  try {
-    const rp = await fetch(`/api/map/${MapAPI.worldId}/river-path?q=${q}&r=${r}&node=${MapAPI.nodeId||''}`);
-    const data = await rp.json();
-    if (data.path?.length > 1) {
-      // Convert path to edge masks on hex cells
-      for (let i = 0; i < data.path.length - 1; i++) {
-        const [aq, ar] = data.path[i].split('_').map(Number);
-        const [bq, br] = data.path[i+1].split('_').map(Number);
-        const d = direction(aq, ar, bq, br);
-        if (d >= 0) {
-          const ak = `${aq}_${ar}`, bk = `${bq}_${br}`;
-          if (!mapData.hexes[ak]) mapData.hexes[ak] = {color:'#6CC261',terrain:'plains',riverMask:0};
-          if (!mapData.hexes[bk]) mapData.hexes[bk] = {color:'#6CC261',terrain:'plains',riverMask:0};
-          mapData.hexes[ak].riverMask = (mapData.hexes[ak].riverMask || 0) | (1 << d);
-          mapData.hexes[bk].riverMask = (mapData.hexes[bk].riverMask || 0) | (1 << OPPOSITE_DIR[d]);
-        }
-      }
-      render();
-      setStatus(`河流: ${data.path.length} 段 → 水域`);
-      showToast(`河流已放置`);
-    } else {
-      setStatus('河流: 未找到水域路径');
-      showToast('该位置无法找到通往水域的路径');
-    }
-  } catch(e) {
-    setStatus('河流: 寻路失败');
-    console.warn('River path failed:', e);
+// ── River Tool (manual) ─────────────────────────────────
+let riverStart = null;
+
+function addRiverWaypoint(q, r) {
+  if (!riverStart) {
+    riverStart = {q, r};
+    setStatus(`河流起点: (${q},${r}) — 请点击相邻格子`);
+    return;
   }
+  const d = direction(riverStart.q, riverStart.r, q, r);
+  if (d < 0) { setStatus('河流: 请点击相邻的格子'); return; }
+  const ak = `${riverStart.q}_${riverStart.r}`, bk = `${q}_${r}`;
+  if (!mapData.hexes[ak]) mapData.hexes[ak] = {color:'#6CC261',terrain:'plains',riverMask:0};
+  if (!mapData.hexes[bk]) mapData.hexes[bk] = {color:'#6CC261',terrain:'plains',riverMask:0};
+  mapData.hexes[ak].riverMask = (mapData.hexes[ak].riverMask || 0) | (1 << d);
+  mapData.hexes[bk].riverMask = (mapData.hexes[bk].riverMask || 0) | (1 << OPPOSITE_DIR[d]);
+  render();
+  showToast(`河流: (${riverStart.q},${riverStart.r}) → (${q},${r})`);
+  riverStart = {q, r};
+  setStatus(`河流: 从 (${q},${r}) 继续，或切换工具结束`);
 }
 
-// ── River/Edge Rendering ───────────────────────────────
+// ── River Rendering ─────────────────────────────────────
 function renderRivers() {
   if (!mapData?.hexes) return;
   ctx.save();
@@ -355,44 +343,49 @@ function renderRivers() {
   ctx.scale(zoom, zoom);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const size = GRID - 1;
 
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 5 / zoom;
+  ctx.beginPath();
   for (const [key, cell] of Object.entries(mapData.hexes)) {
     const mask = cell.riverMask || 0;
     if (mask === 0) continue;
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
-    const corners = hexCorners(x, y, size);
-
-    // Draw white outline for all river edges in this hex
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 5 / zoom;
     for (let d = 0; d < 6; d++) {
       if (mask & (1 << d)) {
-        ctx.beginPath();
-        ctx.moveTo(corners[d][0], corners[d][1]);
-        ctx.lineTo(corners[(d+1)%6][0], corners[(d+1)%6][1]);
-        ctx.stroke();
-      }
-    }
-    // Draw colored river on top
-    ctx.strokeStyle = '#3295D2';
-    ctx.lineWidth = 3 / zoom;
-    for (let d = 0; d < 6; d++) {
-      if (mask & (1 << d)) {
-        ctx.beginPath();
-        ctx.moveTo(corners[d][0], corners[d][1]);
-        ctx.lineTo(corners[(d+1)%6][0], corners[(d+1)%6][1]);
-        ctx.stroke();
+        const [dq, dr] = DIR_VECTORS[d];
+        const tx = hexToPixel(q+dq, r+dr).x, ty = hexToPixel(q+dq, r+dr).y;
+        const nx = x + (tx - x) * 0.5, ny = y + (ty - y) * 0.5;
+        ctx.moveTo(x, y); ctx.lineTo(nx, ny);
       }
     }
   }
+  ctx.stroke();
+
+  ctx.strokeStyle = '#3295D2';
+  ctx.lineWidth = 3 / zoom;
+  ctx.beginPath();
+  for (const [key, cell] of Object.entries(mapData.hexes)) {
+    const mask = cell.riverMask || 0;
+    if (mask === 0) continue;
+    const [q, r] = key.split('_').map(Number);
+    const {x, y} = hexToPixel(q, r);
+    for (let d = 0; d < 6; d++) {
+      if (mask & (1 << d)) {
+        const [dq, dr] = DIR_VECTORS[d];
+        const tx = hexToPixel(q+dq, r+dr).x, ty = hexToPixel(q+dq, r+dr).y;
+        const nx = x + (tx - x) * 0.5, ny = y + (ty - y) * 0.5;
+        ctx.moveTo(x, y); ctx.lineTo(nx, ny);
+      }
+    }
+  }
+  ctx.stroke();
   ctx.restore();
 }
 
 // ── Interaction ─────────────────────────────────────────
 let clickHex = null;
-let riverWaypoints = [];  // river tool waypoints
 
 canvas.addEventListener('mousedown', e => {
   if (e.button===1 || (e.button===0 && e.shiftKey)) {
