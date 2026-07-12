@@ -452,14 +452,14 @@ function deleteProvince(name) {
 function renderProvinceHighlight() {
   if (!selectedProvince || !mapData?.provinces) return;
   const p = mapData.provinces[selectedProvince];
-  if (!p?.hexes) return;
+  if (!p?.hexes?.length) return;
   ctx.save();
   ctx.translate(offX, offY);
   ctx.scale(zoom, zoom);
 
   const allHexes = new Set(p.hexes);
 
-  // Draw semi-transparent fill for ALL province hexes
+  // Semi-transparent fill for entire province
   ctx.fillStyle = (p.color || '#FF0000') + '33';
   for (const key of p.hexes) {
     const [q, r] = key.split('_').map(Number);
@@ -472,15 +472,13 @@ function renderProvinceHighlight() {
     ctx.fill();
   }
 
-  // Draw draggable dots at boundary hexes ONLY (those WITHIN province that touch outside)
+  // Filled dots at boundary hexes (province hexes touching non-province)
   const boundaryHexes = [];
   for (const key of p.hexes) {
     const [q, r] = key.split('_').map(Number);
-    let isBoundary = false;
     for (const [dq, dr] of DIR_VECTORS) {
-      if (!allHexes.has(`${q+dq}_${r+dr}`)) { isBoundary = true; break; }
+      if (!allHexes.has(`${q+dq}_${r+dr}`)) { boundaryHexes.push({q, r}); break; }
     }
-    if (isBoundary) boundaryHexes.push({q, r});
   }
 
   ctx.fillStyle = p.color || '#FF0000';
@@ -491,7 +489,6 @@ function renderProvinceHighlight() {
     ctx.fill();
   }
 
-  // Store boundary hexes for drag detection
   canvas._boundaryHexes = boundaryHexes;
   ctx.restore();
 }
@@ -598,12 +595,13 @@ function finishProvince() {
     }
   }
 
-  // Create province
+  // Create province — include boundary hexes + interior
   const name = prompt('省份名称:', `省${Object.keys(mapData.provinces||{}).length + 1}`);
   if (!name) { provincePts = []; render(); setStatus('省份: 已取消'); return; }
   if (!mapData.provinces) mapData.provinces = {};
+  const allHexes = [...interior, ...boundSet];
   mapData.provinces[name] = {
-    hexes: [...interior],
+    hexes: allHexes,
     color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'),
     tag: '', description: ''
   };
