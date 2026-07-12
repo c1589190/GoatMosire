@@ -250,19 +250,24 @@ public class MapApiHandler implements HttpHandler {
                 sendJson(exchange, 200, Map.of("worldId", worldId, "blocks", blocks, "count", blocks.size()));
             }
             case "POST" -> {
-                // Add a block
                 var body = MAPPER.readTree(exchange.getRequestBody());
                 String terrain = body.get("terrain").asText();
-                List<MapData.Pt> bnd = new ArrayList<>();
-                for (var pt : body.get("boundary")) {
-                    bnd.add(new MapData.Pt(pt.get("x").asDouble(), pt.get("y").asDouble()));
-                }
                 String seed = body.has("seedKey") ? body.get("seedKey").asText() : "";
-                String blockId = mapService.addBlock(worldId, terrain, bnd, seed);
-                if (blockId != null) {
-                    sendJson(exchange, 200, Map.of("ok", true, "blockId", blockId, "terrain", terrain));
+
+                // Accept hexKeys directly (from client-side flood fill)
+                if (body.has("hexKeys")) {
+                    Set<String> hexSet = new HashSet<>();
+                    for (var node : body.get("hexKeys")) hexSet.add(node.asText());
+                    String blockId = mapService.addBlockFromHexSet(worldId, terrain, hexSet, seed);
+                    sendJson(exchange, 200, Map.of("ok", blockId != null, "blockId", blockId != null ? blockId : "", "terrain", terrain));
                 } else {
-                    sendJson(exchange, 200, Map.of("ok", false, "reason", "empty after overlap processing"));
+                    // Legacy: accept polygon boundary
+                    List<MapData.Pt> bnd = new ArrayList<>();
+                    for (var pt : body.get("boundary"))
+                        bnd.add(new MapData.Pt(pt.get("x").asDouble(), pt.get("y").asDouble()));
+                    String blockId = mapService.addBlock(worldId, terrain, bnd, seed);
+                    sendJson(exchange, 200, Map.of("ok", blockId != null, "blockId", blockId != null ? blockId : "", "terrain", terrain,
+                        "reason", blockId == null ? "empty after overlap processing" : ""));
                 }
             }
             case "DELETE" -> {

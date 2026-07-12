@@ -146,13 +146,20 @@ public class TerrainCanvas {
      */
     public String addBlock(String terrain, List<MapData.Pt> boundary, String seedKey) {
         if (terrain == null || boundary == null || boundary.size() < 3) return null;
-
-        // Pre-compute hex set for the new block
         Set<String> newSet = TerrainGeometry.hexSetFromPolygon(boundary, mapRadius, seedKey);
         if (newSet.isEmpty()) return null;
+        return addBlockInternal(terrain, newSet, seedKey);
+    }
 
-        List<Block> toRemove = new ArrayList<>();
+    /** Add a block from pre-computed hex set (client-side flood fill). */
+    public String addBlockFromHexSet(String terrain, Set<String> hexSet, String seedKey) {
+        if (terrain == null || hexSet == null || hexSet.isEmpty()) return null;
+        return addBlockInternal(terrain, hexSet, seedKey);
+    }
+
+    private String addBlockInternal(String terrain, Set<String> newSet, String seedKey) {
         boolean didMerge = false;
+        List<Block> toRemove = new ArrayList<>();
 
         lock.writeLock().lock();
         try {

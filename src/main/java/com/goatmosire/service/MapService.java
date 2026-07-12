@@ -112,6 +112,16 @@ public class MapService {
         return blockId;
     }
 
+    /** Add a block from pre-computed hex set (client-side flood fill). */
+    public String addBlockFromHexSet(String worldId, String terrain, Set<String> hexSet, String seedKey) {
+        TerrainCanvas canvas = getCanvas(worldId);
+        String blockId = canvas.addBlockFromHexSet(terrain, hexSet, seedKey);
+        if (blockId != null) {
+            persistBlocks(worldId, canvas);
+        }
+        return blockId;
+    }
+
     /** Remove a terrain block by id and persist. */
     public boolean removeBlock(String worldId, String blockId) {
         TerrainCanvas canvas = canvases.get(worldId);

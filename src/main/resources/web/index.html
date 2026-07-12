@@ -323,22 +323,46 @@ function applyTerrainLasso(q, r) {
 
 function finishTerrainLasso() {
   const terrain = activeTerrain;
-  const boundary = lassoPts.map(p => {
-    const {x, y} = hexToPixel(p.q, p.r);
-    return {x, y};
-  });
-  boundary.push({...boundary[0]});
-  const seedKey = `${lassoPts[0]?.q || 0}_${lassoPts[0]?.r || 0}`;
+  const rawKeys = lassoPts.map(p => `${p.q}_${p.r}`);
   lassoPts = [];
 
-  // Send to backend for processing
+  // 1. Build boundary set from lasso hexes
+  const boundSet = new Set(rawKeys);
+  
+  // 2. Find seed hex inside the lasso (use centroid of lasso points)
+  let sumQ = 0, sumR = 0;
+  for (const k of rawKeys) { const [q,r] = k.split('_').map(Number); sumQ += q; sumR += r; }
+  const seedQ = Math.round(sumQ / rawKeys.length);
+  const seedR = Math.round(sumR / rawKeys.length);
+  const seedKey = `${seedQ}_${seedR}`;
+
+  // 3. Flood fill from seed, bounded by lasso wall
+  const hexSet = new Set();
+  const stack = [seedKey];
+  const visited = new Set();
+  const maxHex = 5000;
+  while (stack.length && hexSet.size < maxHex) {
+    const key = stack.pop();
+    if (visited.has(key) || boundSet.has(key)) continue;
+    visited.add(key);
+    hexSet.add(key);
+    const [q, r] = key.split('_').map(Number);
+    for (const [dq, dr] of DIR_VECTORS) {
+      const nk = `${q+dq}_${r+dr}`;
+      if (!visited.has(nk) && !boundSet.has(nk)) stack.push(nk);
+    }
+  }
+  // Also include the lasso boundary hexes themselves
+  for (const k of rawKeys) hexSet.add(k);
+
+  // 4. Send hexSet to backend for merge/carve
   fetch(`/api/map/${MapAPI.worldId}/blocks`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({terrain, boundary, seedKey})
+    body: JSON.stringify({terrain, hexKeys: [...hexSet], seedKey})
   }).then(r => r.json()).then(async data => {
     if (data.ok) {
-      showToast(`${terrain} 区域已添加`);
+      showToast(`${terrain} 区域已添加 (${hexSet.size} 格)`);
       await loadMap();
       render();
     } else {
