@@ -312,10 +312,11 @@ function finishTerrainLasso() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({terrain, boundary, seedKey})
-  }).then(r => r.json()).then(data => {
+  }).then(r => r.json()).then(async data => {
     if (data.ok) {
       showToast(`${terrain} 区域已添加`);
-      loadMap();
+      await loadMap();
+      render();
     } else {
       showToast('添加失败: ' + (data.reason || 'unknown'));
     }

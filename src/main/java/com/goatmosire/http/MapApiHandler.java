@@ -352,14 +352,16 @@ public class MapApiHandler implements HttpHandler {
             // Build a thick polygon around the ridge line
             List<MapData.Pt> pts = new ArrayList<>();
             double width = radius * (ridge.weight > 0.8 ? 0.12 : 0.06);
+            final double GRID = 30.0;
 
             for (int i = 0; i < ridge.points.size(); i++) {
                 ContinentContour.Pt p = ridge.points.get(i);
                 double angle = Math.atan2(
                     (i+1 < ridge.points.size() ? ridge.points.get(i+1).y : p.y + 1) - (i > 0 ? ridge.points.get(i-1).y : p.y - 1),
                     (i+1 < ridge.points.size() ? ridge.points.get(i+1).x : p.x + 1) - (i > 0 ? ridge.points.get(i-1).x : p.x - 1));
+                double nx = Math.cos(angle + Math.PI/2) * width;
+                double ny = Math.sin(angle + Math.PI/2) * width;
                 // Convert axial → pixel (with GRID scaling for TerrainGeometry)
-                double GRID = 30.0;
                 double px = (p.x + p.y * 0.5) * GRID;
                 double py = p.y * 0.8660254 * GRID;
                 pts.add(new MapData.Pt(px + nx, py + ny));
