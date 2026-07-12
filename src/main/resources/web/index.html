@@ -1012,27 +1012,30 @@ function updateProvDesc(name, val) {
 
 // ── API ─────────────────────────────────────────────────
 async function init() {
-  MapAPI.init();
+  try { MapAPI.init(); } catch(e) { console.warn(e); }
   if (!MapAPI.worldId || MapAPI.worldId === 'default') MapAPI.worldId = 'logdemo';
-  buildTerrainButtons(DEFAULT_TERRAINS);
+  try { buildTerrainButtons(DEFAULT_TERRAINS); } catch(e) {}
   window.addEventListener('resize', resizeCanvas);
-  resizeCanvas();
+  try { resizeCanvas(); } catch(e) {}
+  document.getElementById('worldSelect').innerHTML = '<option value="logdemo">logdemo</option>';
 
   try {
-    const {worlds} = await MapAPI.listWorlds();
-    const sel = document.getElementById('worldSelect');
-    sel.innerHTML = worlds.map(w => `<option value="${w}">${w}</option>`).join('');
-    if (worlds.length === 0) { setStatus('没有可用的世界地图'); return; }
-    // Auto-select: use URL param worldId if in list, otherwise first world
-    if (worlds.includes(MapAPI.worldId)) {
-      sel.value = MapAPI.worldId;
-    } else {
-      sel.value = worlds[0];
-      MapAPI.worldId = worlds[0];
+    const r = await fetch('/api/map');
+    if (r.ok) {
+      const data = await r.json();
+      const worlds = data.worlds || [];
+      if (worlds.length > 0) {
+        const sel = document.getElementById('worldSelect');
+        sel.innerHTML = worlds.map(w => '<option value="'+w+'">'+w+'</option>').join('');
+        sel.value = worlds.includes(MapAPI.worldId) ? MapAPI.worldId : worlds[0];
+        MapAPI.worldId = sel.value;
+      }
     }
     await loadNodes();
     await loadMap();
-  } catch(e) { showToast('加载世界列表失败: '+e.message); }
+  } catch(e) {
+    try { await loadMap(); } catch(e2) { setStatus('加载失败'); }
+  }
 }
 
 async function onWorldChange() {
