@@ -800,8 +800,15 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseup', e => {
   if (lassoing) {
     lassoing = false;
-    if (lassoPts.length > 2) finishTerrainLasso();
-    else lassoPts = [];
+    if (lassoPts.length >= 2) {
+      // Auto-close: connect last point to start
+      const first = lassoPts[0], last = lassoPts[lassoPts.length-1];
+      if (first.q !== last.q || first.r !== last.r) {
+        const line = hexLine(last.q, last.r, first.q, first.r);
+        for (let i = 1; i < line.length; i++) lassoPts.push(line[i]);
+      }
+      finishTerrainLasso();
+    }
     return;
   }
   if (dragPoint) { dragPoint = null; render(); return; }
@@ -974,23 +981,18 @@ async function loadMap() {
 
 async function saveMap() {
   if (!mapData) return;
-  if (!mapData.terrainTypes || Object.keys(mapData.terrainTypes).length === 0) {
-    mapData.terrainTypes = {...DEFAULT_TERRAINS};
-  }
   try {
-    // Strip editor layers before saving (they're not part of MapData)
-    const layers = mapData._contourEditorLayers;
-    delete mapData._contourEditorLayers;
-    await MapAPI.save(mapData);
-    mapData._contourEditorLayers = layers;  // restore
-    // Also save editor layers to contour if they exist
-    if (layers?.length > 0) {
+    // Save editor layers to contour first
+    if (mapData._contourEditorLayers?.length > 0) {
       await fetch(`/api/map/${MapAPI.worldId}/contour/editor-layers`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(layers)
+        body: JSON.stringify(mapData._contourEditorLayers)
       });
     }
+    // Regenerate full map from contour + layers
+    const r = await fetch(`/api/map/${MapAPI.worldId}?materialize=true`, {method:'POST'});
+    if (!r.ok) throw new Error('Materialize failed: '+r.status);
     showToast('已保存');
     setStatus('已保存');
   } catch(e) { showToast('保存失败: '+e.message); }

@@ -6,6 +6,7 @@ import com.goatmosire.service.MapService;
 import com.goatmosire.service.MapGenerator;
 import com.goatmosire.service.ContinentContour;
 import com.goatmosire.service.ContourLayer;
+import com.goatmosire.service.ContourQueryEngine;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import org.slf4j.Logger;
@@ -74,7 +75,13 @@ public class MapApiHandler implements HttpHandler {
                 String method = exchange.getRequestMethod();
                 switch (method) {
                     case "GET" -> handleGet(exchange, worldId, params);
-                    case "POST" -> handleCreate(exchange, worldId, params);
+                    case "POST" -> {
+                        if ("true".equals(params.get("materialize"))) {
+                            handleGet(exchange, worldId, params);
+                        } else {
+                            handleCreate(exchange, worldId, params);
+                        }
+                    }
                     case "PUT" -> handleSave(exchange, worldId, params);
                     default -> sendError(exchange, 405, "Method not allowed: " + method);
                 }
@@ -93,6 +100,21 @@ public class MapApiHandler implements HttpHandler {
             sendError(exchange, 404, "World not found or no active node: " + worldId);
             return;
         }
+
+        // Materialize from contour if requested
+        if ("true".equals(params.get("materialize"))) {
+            ContinentContour contour = mapService.loadContour(worldId);
+            if (contour == null) {
+                sendError(exchange, 404, "No contour found for world: " + worldId);
+                return;
+            }
+            ContourQueryEngine engine = new ContourQueryEngine(contour);
+            MapData map = engine.materialize(-contour.radius, contour.radius, -contour.radius, contour.radius);
+            mapService.saveFull(worldId, "n0000", map);
+            sendJson(exchange, 200, Map.of("ok", true, "hexCount", map.hexes().size()));
+            return;
+        }
+
         MapData map = mapService.resolve(worldId, nodeId);
         sendJson(exchange, 200, map);
     }
@@ -147,14 +169,15 @@ public class MapApiHandler implements HttpHandler {
         double landRatio = Double.parseDouble(params.getOrDefault("land", "0.35"));
         double coastRoughness = Double.parseDouble(params.getOrDefault("roughness", "0.6"));
 
-        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, fragmentCount, landRatio, coastRoughness);
-        mapService.saveFull(worldId, "n0000", map);
-
-        // Also save compact contour for lazy queries
-        var gen = new com.goatmosire.service.MapGenerator(seed, radius);
+        // Generate contour only (no full map)
+        var gen = new MapGenerator(seed, radius);
         gen.placeRidges(mainCount, fragmentCount);
         ContinentContour contour = gen.generateContour(landRatio);
         mapService.saveContour(worldId, contour);
+
+        // Also materialize full map for editor rendering
+        MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, fragmentCount, landRatio, coastRoughness);
+        mapService.saveFull(worldId, "n0000", map);
 
         sendJson(exchange, 200, Map.of(
             "ok", true, "worldId", worldId, "nodeId", "n0000",
