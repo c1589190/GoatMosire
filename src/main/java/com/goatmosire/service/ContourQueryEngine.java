@@ -58,7 +58,7 @@ public class ContourQueryEngine {
                     new com.gsim.map.MapData.HexCell(ts.color, ts.terrain, null, null, "", 0));
             }
         }
-        return new com.gsim.map.MapData(30, false, hexes,
+        return new com.gsim.map.MapData(30, false, hexes, List.of(),
             new LinkedHashMap<>(), new LinkedHashMap<>(), List.of(), List.of(),
             MapGenerator.defaultTerrainTypes());
     }
