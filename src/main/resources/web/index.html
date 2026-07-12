@@ -966,9 +966,6 @@ async function saveMap() {
   } catch(e) { showToast('保存失败: '+e.message); }
 }
 
-async function saveContour() {
-  if (!mapData) return;
-
 function setStatus(msg) { document.getElementById('statusBar').textContent = msg; }
 
 // Keyboard shortcuts
