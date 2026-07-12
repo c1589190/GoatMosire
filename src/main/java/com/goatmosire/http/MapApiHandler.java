@@ -59,6 +59,8 @@ public class MapApiHandler implements HttpHandler {
                 handleHistory(exchange, sub, params);
             } else if (sub.endsWith("/nodes")) {
                 handleNodes(exchange, sub);
+            } else if (sub.endsWith("/river-path")) {
+                handleRiverPath(exchange, sub, params);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -114,6 +116,17 @@ public class MapApiHandler implements HttpHandler {
         String worldId = sub.substring(1, sub.indexOf("/nodes"));
         List<Map<String, Object>> nodes = mapService.listNodes(worldId);
         sendJson(exchange, 200, Map.of("worldId", worldId, "nodes", nodes));
+    }
+
+    // ── GET /api/map/{worldId}/river-path?q=&r=&node= ────
+
+    private void handleRiverPath(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/river-path"));
+        String nodeId = params.get("node");
+        int q = Integer.parseInt(params.getOrDefault("q", "0"));
+        int r = Integer.parseInt(params.getOrDefault("r", "0"));
+        List<String> path = mapService.findRiverPath(worldId, nodeId, q, r);
+        sendJson(exchange, 200, Map.of("source", Map.of("q", q, "r", r), "path", path, "length", path.size()));
     }
 
     // ── POST /api/map/{worldId} (create full map) ─────────

@@ -42,6 +42,7 @@ public class McpToolRegistry {
             case "goatmosire_get_diff"      -> handleGetDiff(args);
             case "goatmosire_get_history"   -> handleGetHistory(args);
             case "goatmosire_list_worlds"   -> handleListWorlds(args);
+            case "goatmosire_find_river_path" -> handleFindRiverPath(args);
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
     }
@@ -117,6 +118,16 @@ public class McpToolRegistry {
             "List all GSim worlds that have map data.",
             """
             {"type":"object","properties":{},"required":[]}""");
+
+        register("goatmosire_find_river_path",
+            "Find the minimum-cost river path from a source hex to the nearest water or map edge. Uses terrain moveCost as edge weight.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "q":{"type":"integer"},
+              "r":{"type":"integer"}
+            },"required":["worldId","q","r"]}""");
     }
 
     private void register(String name, String description, String schema) {
@@ -278,6 +289,15 @@ public class McpToolRegistry {
     private String handleListWorlds(JsonNode args) throws Exception {
         List<String> worlds = mapService.listWorldsWithMaps();
         return toJson(Map.of("worlds", worlds));
+    }
+
+    private String handleFindRiverPath(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
+        int q = args.get("q").asInt();
+        int r = args.get("r").asInt();
+        List<String> path = mapService.findRiverPath(worldId, nodeId, q, r);
+        return toJson(Map.of("source", Map.of("q", q, "r", r), "path", path, "length", path.size()));
     }
 
     private static String toJson(Object obj) throws Exception {

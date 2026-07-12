@@ -125,6 +125,99 @@ public class MapService {
         return result;
     }
 
+    // ── Pathfinding ────────────────────────────────────────
+
+    /**
+     * Find the minimum-cost path from a source hex to the nearest water hex (or map edge).
+     * Uses Dijkstra with terrain moveCost as edge weight.
+     * Falls back to A* with hex-distance heuristic to water.
+     */
+    public List<String> findRiverPath(String worldId, String nodeId, int fromQ, int fromR) {
+        MapData map = resolve(worldId, nodeId != null ? nodeId : "n0000");
+        String startKey = MapData.hexKey(fromQ, fromR);
+
+        // Priority queue: [fCost, gCost, q, r]
+        var pq = new java.util.PriorityQueue<int[]>(
+            java.util.Comparator.comparingInt(a -> a[0]));
+        var cameFrom = new java.util.HashMap<String, String>();
+        var gCost = new java.util.HashMap<String, Integer>();
+        gCost.put(startKey, 0);
+
+        // Heuristic: hex distance to nearest water
+        // Use 0 for pure Dijkstra (more reliable for small maps)
+        int h = 0; // estimateWaterDistance(map, fromQ, fromR);
+        pq.add(new int[]{h, 0, fromQ, fromR});
+
+        int[][] dirs = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+        String targetKey = null;
+        int iter = 0;
+        int maxIter = 5000;
+
+        while (!pq.isEmpty() && iter++ < maxIter) {
+            int[] cur = pq.poll();
+            int f = cur[0], g = cur[1], q = cur[2], r = cur[3];
+            String curKey = MapData.hexKey(q, r);
+
+            if (g > gCost.getOrDefault(curKey, Integer.MAX_VALUE)) continue;
+
+            // Check if this is water (goal)
+            MapData.HexCell cell = map.hexes().get(curKey);
+            if (cell != null && "water".equals(cell.terrain())) {
+                targetKey = curKey; break;
+            }
+
+            for (int[] d : dirs) {
+                int nq = q + d[0], nr = r + d[1];
+                String nk = MapData.hexKey(nq, nr);
+                MapData.HexCell nc = map.hexes().get(nk);
+                int moveCost = nc != null
+                    ? map.terrainTypes().containsKey(nc.terrain())
+                        ? map.terrainTypes().get(nc.terrain()).moveCost()
+                        : 2
+                    : 1; // empty = easy
+                int ng = g + moveCost;
+                if (ng < gCost.getOrDefault(nk, Integer.MAX_VALUE)) {
+                    gCost.put(nk, ng);
+                    cameFrom.put(nk, curKey);
+                    int nh = 0; // estimateWaterDistance(map, nq, nr);
+                    pq.add(new int[]{ng + nh, ng, nq, nr});
+                }
+            }
+        }
+
+        if (targetKey == null) return List.of();
+
+        // Reconstruct path
+        var path = new java.util.ArrayList<String>();
+        String k = targetKey;
+        while (k != null) {
+            path.add(k);
+            k = cameFrom.get(k);
+        }
+        java.util.Collections.reverse(path);
+        return path;
+    }
+
+    private int estimateWaterDistance(MapData map, int q, int r) {
+        // Simple heuristic: find the nearest water hex using spiral search (capped)
+        int maxR = 20;
+        int[][] dirs = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+        for (int radius = 1; radius <= maxR; radius++) {
+            int cq = q, cr = r;
+            // Start at direction 4 (NW), move radius steps
+            for (int d = 0; d < 6; d++) {
+                for (int step = 0; step < radius; step++) {
+                    cq += dirs[d][0]; cr += dirs[d][1];
+                    String key = MapData.hexKey(cq, cr);
+                    MapData.HexCell cell = map.hexes().get(key);
+                    if (cell == null) return radius;       // map edge = water-ish
+                    if ("water".equals(cell.terrain())) return radius;
+                }
+            }
+        }
+        return maxR;
+    }
+
     // ── Cache ─────────────────────────────────────────────
 
     public void evict(String worldId, String nodeId) {

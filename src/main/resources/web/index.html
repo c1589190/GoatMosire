@@ -63,6 +63,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   <button id="btnPen" class="active" onclick="setTool('pen')" title="画笔 (P)">🖊</button>
   <button id="btnFill" onclick="setTool('fill')" title="填充 (F)">🪣</button>
   <button id="btnEraser" onclick="setTool('eraser')" title="擦除 (E)">🧹</button>
+  <button id="btnRiver" onclick="setTool('river')" title="河流 (R) — 点击放置河道点，自动寻路到水域">🌊</button>
 
   <span style="color:var(--dim);margin:0 4px;">|</span>
   <span id="terrainButtons" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
@@ -225,6 +226,7 @@ function render() {
   }
 
   ctx.restore();
+  renderRivers();  // draw rivers on top
 }
 
 function resizeCanvas() {
@@ -295,12 +297,61 @@ function floodFill(sq, sr, targetColor) {
 
 function setTool(t) {
   tool = t;
-  ['Pen','Fill','Eraser'].forEach(id =>
+  ['Pen','Fill','Eraser','River'].forEach(id =>
     document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
+  riverWaypoints = [];  // reset river when switching tools
+}
+
+// ── River Tool ──────────────────────────────────────────
+async function addRiverWaypoint(q, r) {
+  riverWaypoints.push(`${q}_${r}`);
+  if (riverWaypoints.length >= 2) {
+    // Auto-pathfind from previous waypoint to this one
+    const prev = riverWaypoints[riverWaypoints.length - 2];
+    try {
+      const rp = await fetch(`/api/map/${MapAPI.worldId}/river-path?q=${q}&r=${r}&node=${MapAPI.nodeId||''}`);
+      const data = await rp.json();
+      if (data.path?.length > 1) {
+        // Replace the direct jump with the computed path
+        riverWaypoints.pop();
+        riverWaypoints.push(...data.path);
+        setStatus(`河流: ${riverWaypoints.length} 段`);
+      }
+    } catch(e) { console.warn('River path failed:', e); }
+  }
+  if (!mapData.rivers) mapData.rivers = [];
+  mapData.rivers.push({name:'', path:[...riverWaypoints], width:3, color:'#3295D2'});
+  riverWaypoints = [];
+  render();
+  showToast(`河流已放置 (${mapData.rivers.length} 条)`);
+}
+
+// ── River Rendering (added to render function) ──
+function renderRivers() {
+  if (!mapData?.rivers) return;
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  ctx.lineCap = 'round';
+  for (const river of mapData.rivers) {
+    if (!river.path || river.path.length < 2) continue;
+    ctx.strokeStyle = river.color || '#3295D2';
+    ctx.lineWidth = (river.width || 3) / zoom;
+    ctx.beginPath();
+    for (let i = 0; i < river.path.length; i++) {
+      const [q, r] = river.path[i].split('_').map(Number);
+      const {x, y} = hexToPixel(q, r);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ── Interaction ─────────────────────────────────────────
-let clickHex = null;  // track hex for click-vs-drag detection
+let clickHex = null;
+let riverWaypoints = [];  // river tool waypoints
 
 canvas.addEventListener('mousedown', e => {
   if (e.button===1 || (e.button===0 && e.shiftKey)) {
@@ -326,12 +377,16 @@ canvas.addEventListener('mousemove', e => {
     const tt=terrainTypes[tn];
     tooltip.textContent=`(${h.q},${h.r}) ${tn}`+(tt?` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}`:'');
     if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
-    if (mouseDown) applyTool(h.q, h.r);
+    if (mouseDown && tool !== 'river') applyTool(h.q, h.r);
   } else tooltip.style.display='none';
 });
 
 canvas.addEventListener('mouseup', () => {
-  if (clickHex && mouseDown) showHexInfo(clickHex.q, clickHex.r);
+  if (clickHex && tool === 'river') {
+    addRiverWaypoint(clickHex.q, clickHex.r);
+  } else if (clickHex && mouseDown) {
+    showHexInfo(clickHex.q, clickHex.r);
+  }
   mouseDown=false; panStart=null; clickHex=null;
 });
 canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;tooltip.style.display='none';});
