@@ -176,21 +176,47 @@ function render() {
   ctx.translate(offX, offY);
   ctx.scale(zoom, zoom);
 
-  Object.entries(mapData.hexes || {}).forEach(([key, cell]) => {
+  // Viewport culling: only draw visible hexes
+  const invZoom = 1 / zoom;
+  const vpLeft   = -offX * invZoom - GRID;
+  const vpTop    = -offY * invZoom - GRID;
+  const vpRight  = (-offX + canvas.width)  * invZoom + GRID;
+  const vpBottom = (-offY + canvas.height) * invZoom + GRID;
+
+  const entries = Object.entries(mapData.hexes || {});
+  const hexCount = entries.length;
+  let drawn = 0;
+
+  // Batch by color to reduce fillStyle changes
+  const byColor = {};
+  for (const [key, cell] of entries) {
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
-    const corners = hexCorners(x, y, GRID - 1);
+    if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
 
-    ctx.beginPath();
-    ctx.moveTo(corners[0][0], corners[0][1]);
-    for (let i=1; i<6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-    ctx.closePath();
-    ctx.fillStyle = cell.color || getTerrainColor(cell.terrain) || '#808080';
-    ctx.fill();
+    const color = cell.color || getTerrainColor(cell.terrain) || '#808080';
+    if (!byColor[color]) byColor[color] = [];
+    byColor[color].push({x, y});
+    drawn++;
+  }
+
+  for (const [color, hexes] of Object.entries(byColor)) {
+    ctx.fillStyle = color;
     ctx.strokeStyle = '#ffffff18';
     ctx.lineWidth = 0.5 / zoom;
+    ctx.beginPath();
+    for (const {x, y} of hexes) {
+      const corners = hexCorners(x, y, GRID - 1);
+      ctx.moveTo(corners[0][0], corners[0][1]);
+      for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+    }
+    ctx.fill();
     ctx.stroke();
-  });
+  }
+
+  if (hexCount > 1000) {
+    setStatus(`渲染: ${drawn}/${hexCount} hex (${(100*drawn/hexCount)|0}%)`);
+  }
 
   ctx.restore();
 }
