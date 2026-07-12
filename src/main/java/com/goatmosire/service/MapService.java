@@ -2,11 +2,13 @@ package com.goatmosire.service;
 
 import com.gsim.map.*;
 import com.goatmosire.config.GoatMosireConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -221,6 +223,49 @@ public class MapService {
             }
         }
         return maxR;
+    }
+
+    // ── Contour ────────────────────────────────────────────
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** Save continent contour for a world */
+    public void saveContour(String worldId, ContinentContour contour) {
+        try {
+            Path dir = worldsDir.resolve(worldId).resolve("nodes");
+            Files.createDirectories(dir);
+            Path file = dir.resolve("contour.json");
+            MAPPER.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), contour);
+            evict(worldId, "n0000");
+        } catch (IOException e) {
+            log.error("Failed to save contour for world {}", worldId, e);
+        }
+    }
+
+    /** Load continent contour for a world */
+    public ContinentContour loadContour(String worldId) {
+        try {
+            Path file = worldsDir.resolve(worldId).resolve("nodes").resolve("contour.json");
+            if (!Files.exists(file)) return null;
+            return MAPPER.readValue(file.toFile(), ContinentContour.class);
+        } catch (IOException e) {
+            log.error("Failed to load contour for world {}", worldId, e);
+            return null;
+        }
+    }
+
+    /** Query terrain for a single hex using contour (lazy, cached) */
+    public ContourQueryEngine.TerrainSample queryTerrain(String worldId, int q, int r) {
+        ContinentContour contour = loadContour(worldId);
+        if (contour == null) {
+            // Fallback: resolve full map and query traditionally
+            MapData map = resolve(worldId, null);
+            MapData.HexCell cell = map.hexes().get(q + "_" + r);
+            if (cell == null) return new ContourQueryEngine.TerrainSample(0, "water", "#3295D2");
+            return new ContourQueryEngine.TerrainSample(0.5, cell.terrain(), cell.color());
+        }
+        ContourQueryEngine engine = new ContourQueryEngine(contour);
+        return engine.query(q, r);
     }
 
     // ── Cache ─────────────────────────────────────────────

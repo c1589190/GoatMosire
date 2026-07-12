@@ -66,75 +66,33 @@ public class MapGenerator {
     //  Height Field v4 — Slim Ridges + Wide Plains
     // ═══════════════════════════════════════════════════════
 
-    public MapData generate(double landRatio) {
-        var hexes = new LinkedHashMap<String, MapData.HexCell>();
-
+    /** Generate compact continent contour (new preferred API) */
+    public ContinentContour generateContour(double landRatio) {
         double baseSeaLevel = 0.22 + (1.0 - landRatio) * 0.04;
+        double shelfFreq = 1.8 / radius;
+        double lowFreq   = 3.5 / radius;
+        double midFreq   = 8.0 / radius;
+        double highFreq  = 20.0 / radius;
+        double coastFreq = 3.5 / radius;
 
-        // Radius-aware frequencies
-        double nfShelf = 1.8 / radius;  // continental shelf → broad flat areas
-        double nfLow   = 3.5 / radius;  // continental undulation
-        double nfMid   = 8.0 / radius;  // hills
-        double nfHigh  = 20.0 / radius; // detail + ridge breaking
-        double nfCoast = 3.5 / radius;
-
-        for (int q = -radius; q <= radius; q++) {
-            for (int r = -radius; r <= radius; r++) {
-                int s = -(q + r);
-                if (Math.abs(q) + Math.abs(r) + Math.abs(s) > 2 * radius) continue;
-
-                double px = q + r * 0.5;
-                double py = r * 0.8660254;
-
-                // ── Domain warp ──
-                double wpx = px + noise.noise2(px * 0.018, py * 0.018) * 10;
-                double wpy = py + noise.noise2(px * 0.018 + 70, py * 0.018 + 70) * 10;
-
-                // ── 1. Ridge height (steep decay → visible but thin spines) ──
-                double ridgeH = computeRidgeHeight(wpx, wpy);
-
-                // ── 2. Continental shelf noise (broad uplift far from ridges) ──
-                double shelf = noise.noise2(wpx * nfShelf, wpy * nfShelf);
-                shelf = Math.max(0, shelf * 0.35 + 0.15); // bias positive
-
-                // ── 4. Multi-band noise ──
-                double n1 = noise.noise2(wpx * nfLow  + 100, wpy * nfLow  + 100);
-                double n2 = noise.noise2(wpx * nfMid  + 300, wpy * nfMid  + 300);
-                double n3 = noise.noise2(wpx * nfHigh + 500, wpy * nfHigh + 500);
-                double multi = n1 * 0.40 + n2 * 0.25 + n3 * 0.12;
-
-                // ── 5. Valley penalty ──
-                double valley = computeValleyPenalty(wpx, wpy);
-
-                // ── 6. Height assembly ──
-                // Ridge: sharp but not dominant (0.55). Shelf: broad uplift (0.40).
-                // Multi: fills gaps (0.50). Valley: carves (subtracted).
-                double height = ridgeH * 0.55
-                              + shelf * 0.40
-                              + multi * 0.50
-                              - valley;
-                height = Math.max(0, height);
-                height = Math.pow(height, 0.85); // contrast
-
-                // ── 7. Coast noise ──
-                double coastNoise = noise.noise2(wpx * nfCoast + 77, wpy * nfCoast + 77);
-                double seaLevel = baseSeaLevel + coastNoise * 0.35;
-
-                if (height < seaLevel) {
-                    hexes.put(MapData.hexKey(q, r), waterCell());
-                    continue;
-                }
-
-                // ── 8. Terrain classification ──
-                String terrain = classifyByHeight(height, px, py);
-                hexes.put(MapData.hexKey(q, r),
-                    new MapData.HexCell(terrainColor(terrain), terrain, null, null, "", 0));
-            }
+        List<ContinentContour.Ridge> contourRidges = new ArrayList<>();
+        for (Ridge r : ridges) {
+            List<ContinentContour.Pt> pts = new ArrayList<>();
+            for (Pt p : r.points) pts.add(new ContinentContour.Pt(p.x, p.y));
+            contourRidges.add(new ContinentContour.Ridge(pts, r.weight));
         }
 
-        return new MapData(30, false, hexes,
-            new LinkedHashMap<>(), new LinkedHashMap<>(), List.of(), List.of(),
-            defaultTerrainTypes());
+        return new ContinentContour(
+            rng.nextLong(), radius, landRatio, contourRidges,
+            baseSeaLevel, shelfFreq, lowFreq, midFreq, highFreq, coastFreq
+        );
+    }
+
+    /** Materialize full map from contour (backward compatible) */
+    public MapData generate(double landRatio) {
+        ContinentContour contour = generateContour(landRatio);
+        ContourQueryEngine engine = new ContourQueryEngine(contour);
+        return engine.materialize(-radius, radius, -radius, radius);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -269,7 +227,7 @@ public class MapGenerator {
     //  Terrain Types
     // ═══════════════════════════════════════════════════════
 
-    private static LinkedHashMap<String, MapData.TerrainType> defaultTerrainTypes() {
+    static LinkedHashMap<String, MapData.TerrainType> defaultTerrainTypes() {
         var tt = new LinkedHashMap<String, MapData.TerrainType>();
         tt.put("water",    new MapData.TerrainType("水",   "#3295D2", 1, 0, 0, 99, "水域"));
         tt.put("plains",   new MapData.TerrainType("平原", "#6CC261", 3, 1, 1, 1,  "平原"));

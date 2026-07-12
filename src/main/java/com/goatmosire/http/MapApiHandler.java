@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gsim.map.*;
 import com.goatmosire.service.MapService;
 import com.goatmosire.service.MapGenerator;
+import com.goatmosire.service.ContinentContour;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import org.slf4j.Logger;
@@ -145,6 +146,12 @@ public class MapApiHandler implements HttpHandler {
 
         MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, fragmentCount, landRatio, coastRoughness);
         mapService.saveFull(worldId, "n0000", map);
+
+        // Also save compact contour for lazy queries
+        var gen = new com.goatmosire.service.MapGenerator(seed, radius);
+        gen.placeRidges(mainCount, fragmentCount);
+        ContinentContour contour = gen.generateContour(landRatio);
+        mapService.saveContour(worldId, contour);
 
         sendJson(exchange, 200, Map.of(
             "ok", true, "worldId", worldId, "nodeId", "n0000",
