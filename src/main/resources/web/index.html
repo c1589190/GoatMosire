@@ -110,6 +110,7 @@ let terrainTypes = DEFAULT_TERRAINS;   // active terrain palette
 let activeTerrain = 'plains';          // currently selected terrain
 let tool = 'pen';
 let selectedProvince = null;
+let activeTag = null;  // tag filter: show all regions with this tag
 let provinceLasso = [];
 let zoom = 1;
 let offX = 0, offY = 0;
@@ -615,28 +616,47 @@ function showProvinceList() {
   const names = Object.keys(provs);
   const mapTotal = Object.keys(mapData?.hexes || {}).length;
 
+  // Collect unique tags
+  const tags = [...new Set(names.map(n => provs[n].tag).filter(Boolean))].sort();
+
+  let html = `<div style="margin-bottom:6px;font-size:11px">
+    标签: <select onchange="filterByTag(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:11px;padding:1px 4px">
+      <option value="">全部区域</option>
+      ${tags.map(t => `<option value="${t}" ${activeTag===t?'selected':''}>${t}</option>`).join('')}
+    </select>
+    <button onclick="createEmptyRegion()" style="float:right;font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建</button>
+  </div>`;
+
   title.textContent = `📐 区域 (${names.length})`;
   if (names.length === 0) {
-    body.innerHTML = '<div style="color:var(--dim);font-size:11px">📐右键拖圈创建区域，或➕按钮新建空区域</div>' + '<button onclick="createEmptyRegion()" style="margin-top:4px;font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建区域</button>';
+    html += '<div style="color:var(--dim);font-size:11px">📐右键拖圈创建区域，或➕新建</div>';
   } else {
-    body.innerHTML = names.map(name => {
+    const filtered = activeTag ? names.filter(n => provs[n].tag === activeTag) : names;
+    html += filtered.map(name => {
       const p = provs[name];
       const sel = selectedProvince === name ? 'border:2px solid var(--accent);' : '';
       const ratio = (p.hexes||[]).length / Math.max(mapTotal, 1);
-      const warn = ratio > 0.8 ? ' ⚠️过大' : '';
       return `<div style="margin-bottom:6px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${sel}"
         onclick="selectProvince('${name}')">
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color||'#888'};margin-right:6px"></span>
-        <b>${name}</b> <span style="color:${ratio>0.8?'orange':'var(--dim)'};font-size:10px">${(p.hexes||[]).length}格${warn}</span>
+        <b>${name}</b> <span style="color:var(--dim);font-size:10px">${(p.hexes||[]).length}格</span> ${p.tag ? '<span style="background:#333;color:#aaa;font-size:9px;padding:1px 4px;border-radius:2px">'+p.tag+'</span>' : ''}
         <button onclick="event.stopPropagation();deleteProvince('${name}')" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="删除">✕</button>
         <div style="margin-top:2px;font-size:10px;color:var(--dim)">
-          tag: <input value="${p.tag||''}" onchange="updateProvTag('${name}',this.value)" style="width:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:10px;padding:1px 3px">
+          tag: <input value="${p.tag||''}" onchange="updateProvTag('${name}',this.value);showProvinceList();" style="width:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:10px;padding:1px 3px">
           颜色: <input type="color" value="${p.color||'#ff0000'}" onchange="updateProvColor('${name}',this.value)" style="width:20px;height:16px;border:none;cursor:pointer;vertical-align:middle">
         </div>
       </div>`;
     }).join('');
   }
+  body.innerHTML = html;
   panel.style.display = 'block';
+}
+
+function filterByTag(tag) {
+  activeTag = tag || null;
+  if (activeTag) selectedProvince = null;
+  showProvinceList();
+  render();
 }
 
 function selectProvince(name) {
@@ -656,24 +676,38 @@ function deleteProvince(name) {
 }
 
 function renderProvinceHighlight() {
-  if (!selectedProvince || !mapData?.provinces) return;
-  const p = mapData.provinces[selectedProvince];
-  if (!p?.hexes?.length) return;
+  if (!mapData?.provinces) return;
+  const provs = mapData.provinces;
+
+  // Determine which regions to highlight
+  let toRender = [];
+  if (activeTag) {
+    // Show all regions with this tag
+    for (const [name, p] of Object.entries(provs)) {
+      if (p.tag === activeTag && p.hexes?.length) toRender.push({name, ...p});
+    }
+  } else if (selectedProvince && provs[selectedProvince]?.hexes?.length) {
+    toRender = [{name: selectedProvince, ...provs[selectedProvince]}];
+  }
+  if (!toRender.length) { canvas._boundaryHexes = null; return; }
   ctx.save();
   ctx.translate(offX, offY);
   ctx.scale(zoom, zoom);
 
-  const allHexes = new Set(p.hexes);
   const vpLeft = (-offX) / zoom - GRID;
   const vpRight = (canvas.width - offX) / zoom + GRID;
   const vpTop = (-offY) / zoom - GRID;
   const vpBottom = (canvas.height - offY) / zoom + GRID;
 
-  // Semi-transparent fill — only viewport hexes
-  ctx.fillStyle = (p.color || '#FF0000') + '33';
-  ctx.beginPath();
-  let drawn = 0;
-  for (const key of p.hexes) {
+  // Draw each region
+  for (const region of toRender) {
+    const phexes = region.hexes || [];
+    if (!phexes.length) continue;
+
+    ctx.fillStyle = (region.color || '#FF0000') + '33';
+    ctx.beginPath();
+    let drawn = 0;
+    for (const key of phexes) {
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
     if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
@@ -681,22 +715,25 @@ function renderProvinceHighlight() {
     ctx.moveTo(corners[0][0], corners[0][1]);
     for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
     ctx.closePath();
-    drawn++;
-    if (drawn > 2000) break; // cap per-frame
-  }
-  ctx.fill();
+      drawn++;
+      if (drawn > 2000) break;
+    }
+    ctx.fill();
 
-  // Boundary dots — compute lazily, cache
-  if (!canvas._boundaryCache || canvas._boundaryCache._name !== selectedProvince) {
-    canvas._boundaryCache = computeBoundaryHexes(selectedProvince);
-    canvas._boundaryCache._name = selectedProvince;
-  }
-  canvas._boundaryHexes = canvas._boundaryCache;
-  ctx.fillStyle = p.color;
-  for (const b of canvas._boundaryCache) {
-    const {x, y} = hexToPixel(b.q, b.r);
-    if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
-    ctx.beginPath(); ctx.arc(x, y, 3/zoom, 0, Math.PI*2); ctx.fill();
+    // Boundary dots for this region
+    const cacheName = 'b_' + region.name;
+    if (!canvas[cacheName]) {
+      canvas[cacheName] = computeBoundaryHexes(region.name);
+    }
+    canvas._boundaryHexes = canvas[cacheName];
+    ctx.fillStyle = region.color;
+    ctx.globalAlpha = 0.7;
+    for (const b of canvas[cacheName]) {
+      const {x, y} = hexToPixel(b.q, b.r);
+      if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
+      ctx.beginPath(); ctx.arc(x, y, 3/zoom, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 }
