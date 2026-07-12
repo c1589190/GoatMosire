@@ -5,6 +5,7 @@ import com.gsim.map.*;
 import com.goatmosire.service.MapService;
 import com.goatmosire.service.MapGenerator;
 import com.goatmosire.service.ContinentContour;
+import com.goatmosire.service.ContourLayer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import org.slf4j.Logger;
@@ -65,6 +66,8 @@ public class MapApiHandler implements HttpHandler {
                 handleRiverPath(exchange, sub, params);
             } else if (sub.endsWith("/generate")) {
                 handleGenerate(exchange, sub, params);
+            } else if (sub.contains("/contour")) {
+                handleContour(exchange, sub, params);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -158,6 +161,43 @@ public class MapApiHandler implements HttpHandler {
             "seed", seed, "hexCount", map.hexes().size(),
             "landHexes", map.hexes().values().stream().filter(c -> !"water".equals(c.terrain())).count()
         ));
+    }
+
+    // ── GET/PUT /api/map/{worldId}/contour[/editor-layers] ─
+
+    private void handleContour(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/contour"));
+
+        if (sub.endsWith("/editor-layers") && "PUT".equalsIgnoreCase(exchange.getRequestMethod())) {
+            // PUT editor layers
+            var body = MAPPER.readTree(exchange.getRequestBody());
+            ContinentContour contour = mapService.loadContour(worldId);
+            if (contour == null) {
+                sendJson(exchange, 404, Map.of("error", "no contour found"));
+                return;
+            }
+            List<ContourLayer> layers = new ArrayList<>();
+            for (var node : body) {
+                String terrain = node.get("terrain").asText();
+                List<ContinentContour.Pt> pts = new ArrayList<>();
+                for (var pt : node.get("boundary")) {
+                    pts.add(new ContinentContour.Pt(pt.get("x").asDouble(), pt.get("y").asDouble()));
+                }
+                String seed = node.has("seedKey") ? node.get("seedKey").asText() : "";
+                layers.add(new ContourLayer(terrain, pts, seed));
+            }
+            contour.editorLayers = layers;
+            mapService.saveContour(worldId, contour);
+            sendJson(exchange, 200, Map.of("ok", true, "layers", layers.size()));
+        } else {
+            // GET contour
+            ContinentContour contour = mapService.loadContour(worldId);
+            if (contour == null) {
+                sendJson(exchange, 404, Map.of("error", "no contour found"));
+                return;
+            }
+            sendJson(exchange, 200, contour);
+        }
     }
 
     // ── POST /api/map/{worldId} (create full map) ─────────

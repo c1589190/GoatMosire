@@ -68,6 +68,15 @@ public class ContourQueryEngine {
     // ═══════════════════════════════════════════════════════
 
     private TerrainSample compute(int q, int r) {
+        // Check editor layers first (highest priority = last in list)
+        for (int i = contour.editorLayers.size() - 1; i >= 0; i--) {
+            ContourLayer layer = contour.editorLayers.get(i);
+            if (isHexInPolygon(q, r, layer.boundary)) {
+                String color = terrainColor(layer.terrain);
+                return new TerrainSample(0.5, layer.terrain, color);
+            }
+        }
+
         double px = q + r * 0.5;
         double py = r * 0.8660254;
 
@@ -174,8 +183,29 @@ public class ContourQueryEngine {
             case "forest"   -> "#228B22";
             case "plains"   -> "#6CC261";
             case "swamp"    -> "#556B2F";
+            case "desert"   -> "#DDC88D";
+            case "tundra"   -> "#A8C4D8";
+            case "water"    -> "#3295D2";
             default         -> "#6CC261";
         };
+    }
+
+    /** Ray-casting point-in-polygon test for hex center (q, r) */
+    private boolean isHexInPolygon(int q, int r, List<ContinentContour.Pt> poly) {
+        if (poly == null || poly.size() < 3) return false;
+        double px = q + r * 0.5;
+        double py = r * 0.8660254;
+        int crossings = 0;
+        int n = poly.size();
+        for (int i = 0; i < n; i++) {
+            var a = poly.get(i);
+            var b = poly.get((i + 1) % n);
+            if ((a.y > py) != (b.y > py)) {
+                double intersectX = a.x + (py - a.y) * (b.x - a.x) / (b.y - a.y);
+                if (px < intersectX) crossings++;
+            }
+        }
+        return (crossings & 1) == 1;
     }
 
     // ═══════════════════════════════════════════════════════

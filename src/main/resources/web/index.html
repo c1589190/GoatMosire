@@ -60,9 +60,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   <select id="worldSelect" onchange="onWorldChange()"><option>loading...</option></select>
   <select id="nodeSelect" onchange="onNodeChange()" style="min-width:100px"><option>auto</option></select>
 
-  <button id="btnPen" class="active" onclick="setTool('pen')" title="画笔 (P)">🖊</button>
-  <button id="btnFill" onclick="setTool('fill')" title="填充 (F)">🪣</button>
-  <button id="btnEraser" onclick="setTool('eraser')" title="擦除 (E)">🧹</button>
+  <button id="btnTerrainLasso" class="active" onclick="setTool('terrain_lasso')" title="地形套索 — 圈边界，选地形，填充">✏️</button>
   <button id="btnRiver" onclick="setTool('river')" title="河流 — 点相邻格子拉河段">🌊</button>
   <button id="btnProvince" onclick="setTool('province')" title="省份 — 点击圈边界，点起点闭合">🏛</button>
   <button id="btnGenerate" onclick="generateWorld()" title="生成大陆 — Voronoi+噪声随机地形">🎲</button>
@@ -229,6 +227,7 @@ function render() {
 
   ctx.restore();
   renderRivers();
+  renderEditorLayers();
   renderProvinceHighlight();
 }
 
@@ -257,54 +256,110 @@ function fitView() {
   offY = canvas.height/2 - (minY+maxY)/2*zoom;
   render();
 }
-
 // ── Tools ───────────────────────────────────────────────
-function applyTool(q, r) {
-  const key = `${q}_${r}`;
-  if (!mapData.hexes) mapData.hexes = {};
-  if (tool === 'eraser') {
-    delete mapData.hexes[key];
-  } else if (tool === 'pen') {
-    const t = terrainTypes[activeTerrain];
-    const existing = mapData.hexes[key] || {};
-    mapData.hexes[key] = {...existing, color: t?.color || '#808080', terrain: activeTerrain};
-  } else if (tool === 'fill') {
-    const target = mapData.hexes[key];
-    if (!target) return; // can't fill empty space
-    floodFill(q, r, target.color);
+// Terrain lasso tool: draw polygon → pick terrain → fill
+let lassoPts = [];          // current lasso polygon
+let editorLayers = [];      // [{boundary, terrain, seed}] — local mirror of contour.editorLayers
+
+function applyTerrainLasso(q, r) {
+  // Click start point again → close & fill
+  if (lassoPts.length > 2 && q === lassoPts[0].q && r === lassoPts[0].r) {
+    finishTerrainLasso();
+    return;
   }
+  // Auto-connect from last point
+  if (lassoPts.length > 0) {
+    const last = lassoPts[lassoPts.length - 1];
+    const line = hexLine(last.q, last.r, q, r);
+    for (let i = 1; i < line.length; i++) lassoPts.push(line[i]);
+  } else {
+    lassoPts.push({q, r});
+  }
+  setStatus(`地形套索: ${lassoPts.length} 点 — 点起点闭合`);
   render();
+  renderLassoPreview();
 }
 
-function floodFill(sq, sr, targetColor) {
-  const MAX_FILL = 5000;
-  const t = terrainTypes[activeTerrain];
-  const newColor = t?.color || '#808080';
-  if (targetColor === newColor) return;
+function finishTerrainLasso() {
+  const terrain = activeTerrain;
+  const boundary = lassoPts.map(p => {
+    const {x, y} = hexToPixel(p.q, p.r);
+    return {x, y};
+  });
+  // Close polygon in pixel space
+  boundary.push({...boundary[0]});
 
-  const stack = [{q:sq,r:sr}];
-  const visited = new Set();
-  let count = 0;
-  while (stack.length && count < MAX_FILL) {
-    const {q,r} = stack.pop();
-    const k = `${q}_${r}`;
-    if (visited.has(k)) continue;
-    visited.add(k);
-    const cell = mapData.hexes[k];
-    if (!cell || cell.color !== targetColor) continue;
-    mapData.hexes[k] = {...cell, color: newColor, terrain: activeTerrain};
-    count++;
-    [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]].forEach(([dq,dr]) => stack.push({q:q+dq,r:r+dr}));
+  // Find a seed hex for flood fill reference (interior)
+  let sumQ = 0, sumR = 0;
+  for (const p of lassoPts) { sumQ += p.q; sumR += p.r; }
+  const cq = Math.round(sumQ / lassoPts.length);
+  const cr = Math.round(sumR / lassoPts.length);
+  const seedKey = `${cq}_${cr}`;
+
+  editorLayers.push({terrain, boundary, seedKey});
+  lassoPts = [];
+
+  // Push to contour data
+  if (!mapData._contourEditorLayers) mapData._contourEditorLayers = [];
+  mapData._contourEditorLayers.push({terrain, boundary, seedKey});
+
+  setStatus(`地形套索: ${terrain} 层已添加 (${editorLayers.length} 层)`);
+  render();
+  showToast(`${terrain} 区域已添加`);
+}
+
+function renderLassoPreview() {
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 2 / zoom;
+  ctx.setLineDash([4/zoom, 4/zoom]);
+  ctx.beginPath();
+  for (let i = 0; i < lassoPts.length; i++) {
+    const {x, y} = hexToPixel(lassoPts[i].q, lassoPts[i].r);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   }
-  if (count >= MAX_FILL) showToast(`填充达到上限 ${MAX_FILL}，已停止。请缩小区域再试。`);
+  if (lassoPts.length > 2) ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function renderEditorLayers() {
+  for (const layer of editorLayers) {
+    const color = getTerrainColor(layer.terrain) + '22';
+    ctx.save();
+    ctx.translate(offX, offY);
+    ctx.scale(zoom, zoom);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < layer.boundary.length; i++) {
+      const {x, y} = layer.boundary[i];
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.fill();
+    // Boundary dots
+    ctx.fillStyle = getTerrainColor(layer.terrain);
+    for (let i = 0; i < layer.boundary.length - 1; i++) {
+      const {x, y} = layer.boundary[i];
+      ctx.beginPath();
+      ctx.arc(x, y, 3/zoom, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 
 function setTool(t) {
   tool = t;
-  ['Pen','Fill','Eraser','River','Province'].forEach(id =>
+  ['TerrainLasso','River','Province'].forEach(id =>
     document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
   riverStart = null;
   provincePts = [];
+  lassoPts = [];
   selectedProvince = null;
   if (t === 'province') showProvinceList();
   else { document.getElementById('infoPanel').style.display = 'none'; }
@@ -717,7 +772,7 @@ canvas.addEventListener('mousemove', e => {
     const tt=terrainTypes[tn];
     tooltip.textContent=`(${h.q},${h.r}) ${tn}`+(tt?` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}`:'');
     if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
-    if (mouseDown && tool !== 'river' && tool !== 'province') applyTool(h.q, h.r);
+    if (mouseDown && tool !== 'river' && tool !== 'province' && tool !== 'terrain_lasso') applyTool(h.q, h.r);
   } else tooltip.style.display='none';
 });
 
@@ -731,6 +786,8 @@ canvas.addEventListener('mouseup', () => {
     addRiverWaypoint(clickHex.q, clickHex.r);
   } else if (clickHex && tool === 'province') {
     addProvincePoint(clickHex.q, clickHex.r);
+  } else if (clickHex && tool === 'terrain_lasso') {
+    applyTerrainLasso(clickHex.q, clickHex.r);
   } else if (clickHex && mouseDown) {
     showHexInfo(clickHex.q, clickHex.r);
   }
@@ -865,13 +922,22 @@ function onNodeChange() {
 async function loadMap() {
   try {
     mapData = await MapAPI.load();
-    // Merge terrain types from map data
     if (mapData.terrainTypes && Object.keys(mapData.terrainTypes).length > 0) {
       buildTerrainButtons(mapData.terrainTypes);
     } else {
-      // Ensure map has default terrain types
       mapData.terrainTypes = {...DEFAULT_TERRAINS};
     }
+    // Load contour editor layers
+    try {
+      const cr = await fetch(`/api/map/${MapAPI.worldId}/contour`);
+      if (cr.ok) {
+        const contour = await cr.json();
+        if (contour.editorLayers) {
+          editorLayers = contour.editorLayers;
+          mapData._contourEditorLayers = contour.editorLayers;
+        }
+      }
+    } catch(e) { /* no contour yet */ }
     fitView();
     setStatus(`已加载: ${MapAPI.worldId} (${Object.keys(mapData.hexes||{}).length} hex)`);
   } catch(e) {
@@ -883,16 +949,25 @@ async function loadMap() {
 
 async function saveMap() {
   if (!mapData) return;
-  // Ensure terrain types are included
   if (!mapData.terrainTypes || Object.keys(mapData.terrainTypes).length === 0) {
     mapData.terrainTypes = {...DEFAULT_TERRAINS};
   }
   try {
     await MapAPI.save(mapData);
-    setStatus('已保存');
-    showToast('地图已保存');
+    // Also save editor layers to contour
+    if (mapData._contourEditorLayers?.length > 0) {
+      await fetch(`/api/map/${MapAPI.worldId}/contour/editor-layers`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(mapData._contourEditorLayers)
+      });
+    }
+    showToast('已保存');
   } catch(e) { showToast('保存失败: '+e.message); }
 }
+
+async function saveContour() {
+  if (!mapData) return;
 
 function setStatus(msg) { document.getElementById('statusBar').textContent = msg; }
 

@@ -21,6 +21,9 @@ public class ContinentContour {
     // Polygon outlines for quick inside/outside test (optional optimization)
     public List<List<Pt>> landPolygons;
 
+    // Editor-drawn terrain layers (stacked on top of generated contour)
+    public List<ContourLayer> editorLayers;
+
     public ContinentContour() {}
 
     public ContinentContour(long seed, int radius, double landRatio,
@@ -38,6 +41,7 @@ public class ContinentContour {
         this.highFreq = highFreq;
         this.coastFreq = coastFreq;
         this.landPolygons = List.of();
+        this.editorLayers = new ArrayList<>();
     }
 
     // ── Embedded types ────────────────────────────────────
