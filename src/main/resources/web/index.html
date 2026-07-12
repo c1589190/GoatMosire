@@ -245,7 +245,6 @@ function render() {
 
   ctx.restore();
   renderRivers();
-  renderEditorLayers();
   renderProvinceHighlight();
 }
 
@@ -305,86 +304,23 @@ function finishTerrainLasso() {
     return {x, y};
   });
   boundary.push({...boundary[0]});
-  const seedKey = `${lassoPts[0].q}_${lassoPts[0].r}`;
+  const seedKey = `${lassoPts[0]?.q || 0}_${lassoPts[0]?.r || 0}`;
   lassoPts = [];
 
-  if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
-
-  // Compute hex set for new block
-  const newHexSet = hexSetFromPolygon(boundary, mapData.gridSize || 80, seedKey);
-  if (newHexSet.size === 0) { render(); showToast('空区域，跳过'); return; }
-
-  // ── Block merge/hole logic ──
-  const block = {terrain, boundary, seedKey, _hexSet: newHexSet};
-
-  // 1. Remove any same-terrain blocks fully contained in new block
-  mapData.terrainBlocks = mapData.terrainBlocks.filter(existing => {
-    if (existing.terrain === terrain) {
-      const es = existing._hexSet || hexSetFromPolygon(existing.boundary, mapData.gridSize || 80);
-      existing._hexSet = es;
-      if ([...es].every(k => newHexSet.has(k))) {
-        // existing is fully inside new → skip (contained)
-        return false;
-      }
+  // Send to backend for processing
+  fetch(`/api/map/${MapAPI.worldId}/blocks`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({terrain, boundary, seedKey})
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      showToast(`${terrain} 区域已添加`);
+      loadMap();
+    } else {
+      showToast('添加失败: ' + (data.reason || 'unknown'));
     }
-    return true;
-  });
-
-  // 2. For different-terrain blocks: subtract new block's hexes
-  for (const existing of mapData.terrainBlocks) {
-    if (existing.terrain !== terrain) {
-      const es = existing._hexSet || hexSetFromPolygon(existing.boundary, mapData.gridSize || 80);
-      existing._hexSet = es;
-      for (const k of newHexSet) es.delete(k);
-      // Rebuild boundary from remaining hex set
-      if (es.size > 0) {
-        existing.boundary = hexSetToBoundary(es);
-      }
-    }
-  }
-
-  // 3. Remove now-empty blocks
-  mapData.terrainBlocks = mapData.terrainBlocks.filter(b => {
-    const hs = b._hexSet;
-    return hs && hs.size > 0;
-  });
-
-  // Add new block
-  mapData.terrainBlocks.push(block);
-
-  // Clean up _hexSet (not serialized)
-  for (const b of mapData.terrainBlocks) {
-    b.boundary = hexSetToBoundary(b._hexSet || new Set());
-  }
-
-  render();
-  showToast(`${terrain} 区域已添加 (${newHexSet.size} 格)`);
-
-  // ── hexSetToBoundary helper ──
-  function hexSetToBoundary(hexSet) {
-    if (hexSet.size === 0) return [];
-    const pts = [];
-    for (const key of hexSet) {
-      const [q, r] = key.split('_').map(Number);
-      let isEdge = false;
-      for (const [dq, dr] of DIR_VECTORS) {
-        if (!hexSet.has(`${q+dq}_${r+dr}`)) { isEdge = true; break; }
-      }
-      if (isEdge) {
-        const {x, y} = hexToPixel(q, r);
-        pts.push({x, y});
-      }
-    }
-    if (pts.length < 3) return pts;
-    // Sort by angle around centroid
-    const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
-    pts.sort((a,b) => Math.atan2(a.y-cy, a.x-cx) - Math.atan2(b.y-cy, b.x-cx));
-    pts.push({...pts[0]});
-    // RDP simplify — remove interior/redundant points
-    return simplifyBoundary(pts, GRID * 2);
-  }
+  }).catch(e => showToast('添加失败: '+e.message));
 }
-
 // ── RDP boundary simplification ──
 function simplifyBoundary(pts, epsilon) {
   if (pts.length < 4) return pts.slice();
@@ -437,32 +373,6 @@ function renderLassoPreview() {
   ctx.restore();
 }
 
-function renderEditorLayers() {
-  if (!mapData?.terrainBlocks) return;
-  for (const layer of mapData.terrainBlocks) {
-    const color = getTerrainColor(layer.terrain) + '22';
-    ctx.save();
-    ctx.translate(offX, offY);
-    ctx.scale(zoom, zoom);
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    for (let i = 0; i < layer.boundary.length; i++) {
-      const {x, y} = layer.boundary[i];
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.fill();
-    // Boundary dots
-    ctx.fillStyle = getTerrainColor(layer.terrain);
-    for (let i = 0; i < layer.boundary.length - 1; i++) {
-      const {x, y} = layer.boundary[i];
-      ctx.beginPath();
-      ctx.arc(x, y, 3/zoom, 0, Math.PI*2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-}
 
 function setTool(t) {
   tool = t;
@@ -710,46 +620,7 @@ canvas.addEventListener('mousedown', e => {
 });
 
 // Compute hex set from polygon boundary (flood fill from seed)
-function hexSetFromPolygon(boundary, mapRadius, seedHexArg) {
-  if (!boundary || boundary.length < 3) return new Set();
-  const hexSet = new Set();
-  const visited = new Set();
-  
-  // Try seed from argument, fall back to centroid search
-  let seeds = [];
-  if (seedHexArg) seeds.push(seedHexArg);
-  const cx = boundary.reduce((s,p)=>s+p.x,0)/boundary.length;
-  const cy = boundary.reduce((s,p)=>s+p.y,0)/boundary.length;
-  const ch = pixelToHex(cx, cy);
-  if (ch) seeds.push(`${ch.q}_${ch.r}`);
-  // Also try first boundary point
-  const fh = pixelToHex(boundary[0].x, boundary[0].y);
-  if (fh) seeds.push(`${fh.q}_${fh.r}`);
-
-  for (const seedKey of seeds) {
-    const [sq, sr] = seedKey.split('_').map(Number);
-    const sp = hexToPixel(sq, sr);
-    if (pointInPolygon(sp.x, sp.y, boundary)) {
-      // Found valid seed
-      const stack = [seedKey];
-      while (stack.length) {
-        const key = stack.pop();
-        if (visited.has(key)) continue;
-        visited.add(key);
-        const [q, r] = key.split('_').map(Number);
-        const hp = hexToPixel(q, r);
-        if (!pointInPolygon(hp.x, hp.y, boundary)) continue;
-        hexSet.add(key);
-        for (const [dq, dr] of DIR_VECTORS) {
-          const nk = `${q+dq}_${r+dr}`;
-          if (!visited.has(nk) && Math.abs(q+dq) < 200 && Math.abs(r+dr) < 200) stack.push(nk);
-        }
-      }
-      break; // found working seed
-    }
-  }
-  return hexSet;
-}
+// hexSetFromPolygon removed — backend handles this
 
 // Point-in-polygon test for terrain block queries
 function pointInPolygon(px, py, poly) {
