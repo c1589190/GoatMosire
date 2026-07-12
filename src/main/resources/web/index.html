@@ -624,40 +624,43 @@ function renderProvinceHighlight() {
   ctx.scale(zoom, zoom);
 
   const allHexes = new Set(p.hexes);
+  const vpLeft = (-offX) / zoom - GRID;
+  const vpRight = (canvas.width - offX) / zoom + GRID;
+  const vpTop = (-offY) / zoom - GRID;
+  const vpBottom = (canvas.height - offY) / zoom + GRID;
 
-  // Semi-transparent fill for entire province
+  // Semi-transparent fill — only viewport hexes
   ctx.fillStyle = (p.color || '#FF0000') + '33';
+  ctx.beginPath();
+  let drawn = 0;
   for (const key of p.hexes) {
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
+    if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
     const corners = hexCorners(x, y, GRID - 1);
-    ctx.beginPath();
     ctx.moveTo(corners[0][0], corners[0][1]);
     for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-    ctx.closePath();
-    ctx.fill();
+    drawn++;
+    if (drawn > 2000) break; // cap per-frame
   }
+  ctx.fill();
 
-  // Filled dots at boundary hexes (province hexes touching non-province)
-  const boundaryHexes = [];
-  for (const key of p.hexes) {
-    const [q, r] = key.split('_').map(Number);
-    for (const [dq, dr] of DIR_VECTORS) {
-      if (!allHexes.has(`${q+dq}_${r+dr}`)) { boundaryHexes.push({q, r}); break; }
-    }
+  // Boundary dots — compute lazily, cache
+  if (!canvas._boundaryCache || canvas._boundaryCache._name !== selectedProvince) {
+    canvas._boundaryCache = computeBoundaryHexes(selectedProvince);
+    canvas._boundaryCache._name = selectedProvince;
   }
-
-  ctx.fillStyle = p.color || '#FF0000';
-  for (const {q, r} of boundaryHexes) {
-    const {x, y} = hexToPixel(q, r);
-    ctx.beginPath();
-    ctx.arc(x, y, 4 / zoom, 0, Math.PI * 2);
-    ctx.fill();
+  canvas._boundaryHexes = canvas._boundaryCache;
+  ctx.fillStyle = p.color;
+  for (const b of canvas._boundaryCache) {
+    const {x, y} = hexToPixel(b.q, b.r);
+    if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
+    ctx.beginPath(); ctx.arc(x, y, 3/zoom, 0, Math.PI*2); ctx.fill();
   }
-
-  canvas._boundaryHexes = boundaryHexes;
   ctx.restore();
 }
+
+// ── Province Lasso
 
 // ── Province boundary dragging ──────────────────────────
 let dragPoint = null;
