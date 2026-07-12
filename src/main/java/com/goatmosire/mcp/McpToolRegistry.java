@@ -143,6 +143,7 @@ public class McpToolRegistry {
         result.put("q", q); result.put("r", r);
         result.put("color", cell.color()); result.put("terrain", cell.terrain());
         if (cell.symbol() != null) result.put("symbol", cell.symbol());
+        if (cell.description() != null && !cell.description().isEmpty()) result.put("description", cell.description());
         if (province != null) result.put("province", province);
         // Include terrain properties
         MapData.TerrainType tt = map.terrainTypes().get(cell.terrain());
@@ -172,7 +173,9 @@ public class McpToolRegistry {
             }
             hexes.add(h);
         }
-        return toJson(Map.of("found", true, "name", name, "hexCount", hexes.size(), "hexes", hexes));
+        return toJson(Map.of("found", true, "name", name, "hexCount", hexes.size(), "hexes", hexes,
+            "tag", prov.tag() != null ? prov.tag() : "",
+            "description", prov.description() != null ? prov.description() : ""));
     }
 
     private String handleGetNeighbors(JsonNode args) throws Exception {

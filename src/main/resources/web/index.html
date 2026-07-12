@@ -75,9 +75,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   <span class="status" id="statusBar">就绪</span>
 </div>
 
-<div class="canvas-wrap" id="canvasWrap">
+<div style="display:flex;flex:1;overflow:hidden;">
+<div class="canvas-wrap" id="canvasWrap" style="flex:1;">
   <canvas id="mapCanvas"></canvas>
   <div class="tooltip" id="tooltip"></div>
+</div>
+<div id="infoPanel" style="width:220px;background:var(--panel);border-left:1px solid var(--border);padding:12px;overflow-y:auto;display:none;font-size:12px;">
+  <h4 id="infoTitle" style="color:var(--accent);margin:0 0 8px;"></h4>
+  <div id="infoBody"></div>
+</div>
 </div>
 
 <script src="map-api.js"></script>
@@ -294,14 +300,15 @@ function setTool(t) {
 }
 
 // ── Interaction ─────────────────────────────────────────
+let clickHex = null;  // track hex for click-vs-drag detection
+
 canvas.addEventListener('mousedown', e => {
   if (e.button===1 || (e.button===0 && e.shiftKey)) {
     panStart={x:e.clientX,y:e.clientY}; panOff={x:offX,y:offY}; return;
   }
   if (e.button!==0) return;
   mouseDown=true;
-  const h=getHexAtEvent(e);
-  if (h) applyTool(h.q, h.r);
+  clickHex = getHexAtEvent(e);
 });
 
 canvas.addEventListener('mousemove', e => {
@@ -318,11 +325,15 @@ canvas.addEventListener('mousemove', e => {
     const tn=cell?.terrain||'empty';
     const tt=terrainTypes[tn];
     tooltip.textContent=`(${h.q},${h.r}) ${tn}`+(tt?` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}`:'');
+    if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
     if (mouseDown) applyTool(h.q, h.r);
   } else tooltip.style.display='none';
 });
 
-canvas.addEventListener('mouseup', ()=>{mouseDown=false;panStart=null;lastHex=null;});
+canvas.addEventListener('mouseup', () => {
+  if (clickHex && mouseDown) showHexInfo(clickHex.q, clickHex.r);
+  mouseDown=false; panStart=null; clickHex=null;
+});
 canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;tooltip.style.display='none';});
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
@@ -336,6 +347,60 @@ canvas.addEventListener('wheel', e => {
 function getHexAtEvent(e) {
   const r=canvas.getBoundingClientRect();
   return pixelToHex((e.clientX-r.left-offX)/zoom, (e.clientY-r.top-offY)/zoom);
+}
+
+// ── Info Panel ──────────────────────────────────────────
+function showHexInfo(q, r) {
+  const key = `${q}_${r}`;
+  const cell = (mapData?.hexes || {})[key];
+  const panel = document.getElementById('infoPanel');
+  const title = document.getElementById('infoTitle');
+  const body = document.getElementById('infoBody');
+
+  if (!cell) { panel.style.display = 'none'; return; }
+
+  // Find province this hex belongs to
+  let provName = '', provTag = '', provDesc = '';
+  for (const [pname, prov] of Object.entries(mapData.provinces || {})) {
+    if (prov.hexes?.includes(key)) { provName = pname; provTag = prov.tag || ''; provDesc = prov.description || ''; break; }
+  }
+
+  const tt = terrainTypes[cell.terrain] || {};
+  title.textContent = `(${q}, ${r}) — ${cell.terrain}`;
+  body.innerHTML = `
+    <div style="margin-bottom:8px">
+      <label style="color:var(--dim);font-size:10px">描述</label>
+      <textarea id="hexDesc" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;resize:vertical;min-height:40px"
+        onchange="updateHexDesc(${q},${r},this.value)">${cell.description||''}</textarea>
+    </div>
+    ${provName ? `
+    <div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:4px">
+      <div style="font-weight:700;color:var(--accent);margin-bottom:4px">${provName}</div>
+      <label style="color:var(--dim);font-size:10px">GSim Tag</label>
+      <input id="provTag" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"
+        value="${provTag}" onchange="updateProvTag('${provName}',this.value)">
+      <label style="color:var(--dim);font-size:10px;margin-top:4px;display:block">省份描述</label>
+      <textarea id="provDesc" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;resize:vertical;min-height:30px"
+        onchange="updateProvDesc('${provName}',this.value)">${provDesc}</textarea>
+    </div>` : ''}
+    <div style="font-size:10px;color:var(--dim)">
+      🍖${tt.food||0} 💰${tt.gold||0} 🪨${tt.stone||0} 👣${tt.moveCost||0}
+    </div>`;
+  panel.style.display = 'block';
+}
+
+function updateHexDesc(q, r, val) {
+  const key = `${q}_${r}`;
+  if (!mapData.hexes[key]) mapData.hexes[key] = {color:'#808080',terrain:'unknown'};
+  mapData.hexes[key].description = val;
+}
+
+function updateProvTag(name, val) {
+  if (mapData.provinces[name]) mapData.provinces[name].tag = val;
+}
+
+function updateProvDesc(name, val) {
+  if (mapData.provinces[name]) mapData.provinces[name].description = val;
 }
 
 // ── API ─────────────────────────────────────────────────
