@@ -63,8 +63,9 @@ public class TerrainCanvas {
 
         void invalidateCache() { hexSet = null; }
 
-        MapData.TerrainBlock toGsimBlock() {
-            return new MapData.TerrainBlock(terrain, List.copyOf(boundary), seedKey);
+        MapData.TerrainBlock toGsimBlock(int mapRadius) {
+            Set<String> hs = hexSet(mapRadius);
+            return new MapData.TerrainBlock(terrain, List.copyOf(boundary), seedKey, hs);
         }
     }
 
@@ -228,7 +229,7 @@ public class TerrainCanvas {
         try {
             List<MapData.TerrainBlock> result = new ArrayList<>();
             for (Block b : blocks) {
-                result.add(b.toGsimBlock());
+                result.add(b.toGsimBlock(mapRadius));
             }
             return result;
         } finally {

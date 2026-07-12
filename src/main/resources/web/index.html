@@ -175,6 +175,28 @@ function getTerrainColor(name) {
   return terrainTypes[name]?.color || '#808080';
 }
 
+
+// ── Terrain color resolver (hexKeys-based, no pixel math) ─
+function resolveTerrainColor(q, r, cell) {
+  const key = q + '_' + r;
+  const blocks = (mapData.terrainBlocks || []);
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.hexKeys && b.hexKeys.has) {
+      if (b.hexKeys.has(key)) {
+        return getTerrainColor(b.terrain);
+      }
+    } else if (b.boundary && b.boundary.length >= 3) {
+      // Fallback: point-in-polygon (for blocks without hexKeys)
+      const z = hexToPixel(q, r);
+      if (pointInPolygon(z.x, z.y, b.boundary)) {
+        return getTerrainColor(b.terrain);
+      }
+    }
+  }
+  return (cell && cell.color) || getTerrainColor(cell?.terrain) || '#808080';
+}
+
 // ── Rendering ───────────────────────────────────────────
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -219,7 +241,7 @@ function render() {
     const {x, y} = hexToPixel(q, r);
     if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
 
-    const color = (()=>{const blocks2=(mapData.terrainBlocks||[]).filter(b=>b.boundary&&b.boundary.length>=3);if(blocks2.length>0){const z=hexToPixel(q,r);for(let i=blocks2.length-1;i>=0;i--){if(pointInPolygon(z.x,z.y,blocks2[i].boundary))return getTerrainColor(blocks2[i].terrain);}}return(cell&&cell.color)||getTerrainColor(cell?.terrain)||"#808080";})();
+    const color = resolveTerrainColor(q, r, cell);
     if (!byColor[color]) byColor[color] = [];
     byColor[color].push({x, y});
     drawn++;
