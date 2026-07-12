@@ -800,6 +800,8 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseup', e => {
   if (lassoing) {
     lassoing = false;
+    if (lassoPts.length > 2) finishTerrainLasso();
+    else lassoPts = [];
     return;
   }
   if (dragPoint) { dragPoint = null; render(); return; }
