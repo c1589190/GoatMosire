@@ -141,17 +141,28 @@ public class MapApiHandler implements HttpHandler {
         }
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
-        // Detect: does it have parentNodeId? → diff. Otherwise → full map.
         try {
             var root = MAPPER.readTree(body);
             if (root.has("parentNodeId")) {
+                // Explicit diff from client
                 MapDiff diff = MAPPER.readValue(body, MapDiff.class);
                 mapService.saveDiff(worldId, nodeId, diff);
                 log.info("Saved diff for world={} node={} ({} hex changes)", worldId, nodeId, diff.changed().size());
             } else {
                 MapData data = MAPPER.readValue(body, MapData.class);
-                mapService.saveFull(worldId, nodeId, data);
-                log.info("Saved full map for world={} node={}", worldId, nodeId);
+                if (isRootNode(worldId, nodeId)) {
+                    // Root node: save full map
+                    mapService.saveFull(worldId, nodeId, data);
+                    log.info("Saved full map for root node world={} node={}", worldId, nodeId);
+                } else {
+                    // Child node: auto-compute diff vs parent's resolved map
+                    String parentId = readParentNodeId(worldId, nodeId);
+                    MapData parentMap = parentId != null ? mapService.resolve(worldId, parentId) : MapData.empty();
+                    MapDiff diff = MapDiff.compute(parentId, parentMap, data);
+                    mapService.saveDiff(worldId, nodeId, diff);
+                    log.info("Auto-computed diff for world={} node={} ({} changed, {} removed)",
+                        worldId, nodeId, diff.changed().size(), diff.removed().size());
+                }
             }
             sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
         } catch (Exception e) {
@@ -191,6 +202,26 @@ public class MapApiHandler implements HttpHandler {
             if (!java.nio.file.Files.exists(file)) return null;
             var node = MAPPER.readTree(file.toFile());
             return node.has("nodeId") ? node.get("nodeId").asText() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean isRootNode(String worldId, String nodeId) {
+        return readParentNodeId(worldId, nodeId) == null;
+    }
+
+    private String readParentNodeId(String worldId, String nodeId) {
+        try {
+            var file = java.nio.file.Path.of(
+                System.getProperty("user.home"), "GSimulator/worlds", worldId, "nodes", nodeId + ".json");
+            if (!java.nio.file.Files.exists(file)) return null;
+            var node = MAPPER.readTree(file.toFile());
+            if (node.has("parentId") && !node.get("parentId").isNull()) {
+                String pid = node.get("parentId").asText();
+                return pid.isBlank() ? null : pid;
+            }
+            return null;
         } catch (Exception e) {
             return null;
         }
