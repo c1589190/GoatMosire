@@ -299,9 +299,9 @@ function finishTerrainLasso() {
   editorLayers.push({terrain, boundary, seedKey});
   lassoPts = [];
 
-  // Push to contour data
-  if (!mapData._contourEditorLayers) mapData._contourEditorLayers = [];
-  mapData._contourEditorLayers.push({terrain, boundary, seedKey});
+  // Add to mapData terrain blocks
+  if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
+  mapData.terrainBlocks.push({terrain, boundary, seedKey});
 
   setStatus(`地形套索: ${terrain} 层已添加 (${editorLayers.length} 层)`);
   render();
@@ -597,6 +597,18 @@ canvas.addEventListener('mousedown', e => {
     }
   }
 });
+
+// Point-in-polygon test for terrain block queries
+function pointInPolygon(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    if ((poly[i].y > py) !== (poly[j].y > py) &&
+        px < (poly[j].x - poly[i].x) * (py - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
 function hexLine(aq, ar, bq, br) {
   const dist = Math.max(Math.abs(bq - aq), Math.abs(br - ar), Math.abs((-bq-br) - (-aq-ar)));
@@ -981,18 +993,11 @@ async function loadMap() {
 
 async function saveMap() {
   if (!mapData) return;
+  if (!mapData.terrainTypes || Object.keys(mapData.terrainTypes).length === 0) {
+    mapData.terrainTypes = {...DEFAULT_TERRAINS};
+  }
   try {
-    // Save editor layers to contour first
-    if (mapData._contourEditorLayers?.length > 0) {
-      await fetch(`/api/map/${MapAPI.worldId}/contour/editor-layers`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(mapData._contourEditorLayers)
-      });
-    }
-    // Regenerate full map from contour + layers
-    const r = await fetch(`/api/map/${MapAPI.worldId}?materialize=true`, {method:'POST'});
-    if (!r.ok) throw new Error('Materialize failed: '+r.status);
+    await MapAPI.save(mapData);
     showToast('已保存');
     setStatus('已保存');
   } catch(e) { showToast('保存失败: '+e.message); }
