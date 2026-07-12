@@ -108,6 +108,7 @@ let mapData = null;
 let terrainTypes = DEFAULT_TERRAINS;   // active terrain palette
 let activeTerrain = 'plains';          // currently selected terrain
 let tool = 'pen';
+let selectedProvince = null;
 let zoom = 1;
 let offX = 0, offY = 0;
 let mouseDown = false;
@@ -304,7 +305,7 @@ function setTool(t) {
   ['Pen','Fill','Eraser','River','Province'].forEach(id =>
     document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
   riverStart = null;
-  provincePts = [];
+  provinceLasso = [];
   selectedProvince = null;
   if (t === 'province') showProvinceList();
   else { document.getElementById('infoPanel').style.display = 'none'; }
