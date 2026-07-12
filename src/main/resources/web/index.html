@@ -231,32 +231,33 @@ function applyTool(q, r) {
     mapData.hexes[key] = {color: t?.color || '#808080', terrain: activeTerrain};
   } else if (tool === 'fill') {
     const target = mapData.hexes[key];
-    const targetColor = target?.color || null;
-    floodFill(q, r, targetColor);
+    if (!target) return; // can't fill empty space
+    floodFill(q, r, target.color);
   }
   render();
 }
 
 function floodFill(sq, sr, targetColor) {
+  const MAX_FILL = 5000;
   const t = terrainTypes[activeTerrain];
   const newColor = t?.color || '#808080';
-  const key = `${sq}_${sr}`;
-  const currentColor = mapData.hexes[key]?.color || null;
-  if (currentColor === newColor) return;
-  if (targetColor !== null && currentColor !== targetColor) return;
+  if (targetColor === newColor) return;
 
   const stack = [{q:sq,r:sr}];
   const visited = new Set();
-  while (stack.length) {
+  let count = 0;
+  while (stack.length && count < MAX_FILL) {
     const {q,r} = stack.pop();
     const k = `${q}_${r}`;
     if (visited.has(k)) continue;
     visited.add(k);
-    const cc = mapData.hexes[k]?.color || null;
-    if (targetColor !== null && cc !== targetColor) continue;
+    const cell = mapData.hexes[k];
+    if (!cell || cell.color !== targetColor) continue;
     mapData.hexes[k] = {color: newColor, terrain: activeTerrain};
+    count++;
     [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]].forEach(([dq,dr]) => stack.push({q:q+dq,r:r+dr}));
   }
+  if (count >= MAX_FILL) showToast(`填充达到上限 ${MAX_FILL}，已停止。请缩小区域再试。`);
 }
 
 function setTool(t) {
