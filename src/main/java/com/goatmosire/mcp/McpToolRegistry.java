@@ -144,6 +144,12 @@ public class McpToolRegistry {
         result.put("color", cell.color()); result.put("terrain", cell.terrain());
         if (cell.symbol() != null) result.put("symbol", cell.symbol());
         if (province != null) result.put("province", province);
+        // Include terrain properties
+        MapData.TerrainType tt = map.terrainTypes().get(cell.terrain());
+        if (tt != null) {
+            result.put("food", tt.food()); result.put("gold", tt.gold()); result.put("stone", tt.stone());
+            result.put("moveCost", tt.moveCost());
+        }
         return toJson(result);
     }
 
