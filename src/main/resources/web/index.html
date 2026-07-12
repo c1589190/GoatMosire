@@ -263,7 +263,8 @@ function applyTool(q, r) {
     delete mapData.hexes[key];
   } else if (tool === 'pen') {
     const t = terrainTypes[activeTerrain];
-    mapData.hexes[key] = {color: t?.color || '#808080', terrain: activeTerrain};
+    const existing = mapData.hexes[key] || {};
+    mapData.hexes[key] = {...existing, color: t?.color || '#808080', terrain: activeTerrain};
   } else if (tool === 'fill') {
     const target = mapData.hexes[key];
     if (!target) return; // can't fill empty space
@@ -288,7 +289,7 @@ function floodFill(sq, sr, targetColor) {
     visited.add(k);
     const cell = mapData.hexes[k];
     if (!cell || cell.color !== targetColor) continue;
-    mapData.hexes[k] = {color: newColor, terrain: activeTerrain};
+    mapData.hexes[k] = {...cell, color: newColor, terrain: activeTerrain};
     count++;
     [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]].forEach(([dq,dr]) => stack.push({q:q+dq,r:r+dr}));
   }
