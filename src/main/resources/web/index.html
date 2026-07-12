@@ -319,11 +319,24 @@ let riverStart = null;
 function addRiverWaypoint(q, r) {
   if (!riverStart) {
     riverStart = {q, r};
-    setStatus(`河流起点: (${q},${r}) — 请点击相邻格子`);
+    setStatus(`河流起点: (${q},${r}) — 请点击相邻格子，或再次点击此处取消`);
+    return;
+  }
+  // Click start hex again → cancel/exit
+  if (q === riverStart.q && r === riverStart.r) {
+    riverStart = null;
+    setTool('pen');
+    setStatus('河流: 已取消');
     return;
   }
   const d = direction(riverStart.q, riverStart.r, q, r);
-  if (d < 0) { setStatus('河流: 请点击相邻的格子'); return; }
+  // Non-adjacent → exit river mode
+  if (d < 0) {
+    riverStart = null;
+    setTool('pen');
+    setStatus('河流: 已结束（非相邻格）');
+    return;
+  }
   const ak = `${riverStart.q}_${riverStart.r}`, bk = `${q}_${r}`;
   if (!mapData.hexes[ak]) mapData.hexes[ak] = {color:'#6CC261',terrain:'plains',riverMask:0};
   if (!mapData.hexes[bk]) mapData.hexes[bk] = {color:'#6CC261',terrain:'plains',riverMask:0};
@@ -332,7 +345,7 @@ function addRiverWaypoint(q, r) {
   render();
   showToast(`河流: (${riverStart.q},${riverStart.r}) → (${q},${r})`);
   riverStart = {q, r};
-  setStatus(`河流: 从 (${q},${r}) 继续，或切换工具结束`);
+  setStatus(`河流: 从 (${q},${r}) 继续，或点非相邻格/起点结束`);
 }
 
 // ── River Rendering ─────────────────────────────────────
