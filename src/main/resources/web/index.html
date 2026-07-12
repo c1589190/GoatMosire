@@ -259,7 +259,7 @@ function fitView() {
 // ── Tools ───────────────────────────────────────────────
 // Terrain lasso tool: draw polygon → pick terrain → fill
 let lassoPts = [];          // current lasso polygon
-let editorLayers = [];      // [{boundary, terrain, seed}] — local mirror of contour.editorLayers
+// editorLayers removed — terrainBlocks used directly
 
 function applyTerrainLasso(q, r) {
   // Click start point again → close & fill
@@ -286,26 +286,85 @@ function finishTerrainLasso() {
     const {x, y} = hexToPixel(p.q, p.r);
     return {x, y};
   });
-  // Close polygon in pixel space
   boundary.push({...boundary[0]});
-
-  // Find a seed hex for flood fill reference (interior)
-  let sumQ = 0, sumR = 0;
-  for (const p of lassoPts) { sumQ += p.q; sumR += p.r; }
-  const cq = Math.round(sumQ / lassoPts.length);
-  const cr = Math.round(sumR / lassoPts.length);
-  const seedKey = `${cq}_${cr}`;
-
-  editorLayers.push({terrain, boundary, seedKey});
+  const seedKey = `${lassoPts[0].q}_${lassoPts[0].r}`;
   lassoPts = [];
 
-  // Add to mapData terrain blocks
   if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
-  mapData.terrainBlocks.push({terrain, boundary, seedKey});
 
-  setStatus(`地形套索: ${terrain} 层已添加 (${editorLayers.length} 层)`);
+  // Compute hex set for new block
+  const newHexSet = hexSetFromPolygon(boundary, mapData.gridSize || 80);
+  if (newHexSet.size === 0) { render(); showToast('空区域，跳过'); return; }
+
+  // ── Block merge/hole logic ──
+  const block = {terrain, boundary, seedKey, _hexSet: newHexSet};
+
+  // 1. Remove any same-terrain blocks fully contained in new block
+  mapData.terrainBlocks = mapData.terrainBlocks.filter(existing => {
+    if (existing.terrain === terrain) {
+      const es = existing._hexSet || hexSetFromPolygon(existing.boundary, mapData.gridSize || 80);
+      existing._hexSet = es;
+      if ([...es].every(k => newHexSet.has(k))) {
+        // existing is fully inside new → skip (contained)
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // 2. For different-terrain blocks: subtract new block's hexes
+  for (const existing of mapData.terrainBlocks) {
+    if (existing.terrain !== terrain) {
+      const es = existing._hexSet || hexSetFromPolygon(existing.boundary, mapData.gridSize || 80);
+      existing._hexSet = es;
+      for (const k of newHexSet) es.delete(k);
+      // Rebuild boundary from remaining hex set
+      if (es.size > 0) {
+        existing.boundary = hexSetToBoundary(es);
+      }
+    }
+  }
+
+  // 3. Remove now-empty blocks
+  mapData.terrainBlocks = mapData.terrainBlocks.filter(b => {
+    const hs = b._hexSet;
+    return hs && hs.size > 0;
+  });
+
+  // Add new block
+  mapData.terrainBlocks.push(block);
+
+  // Clean up _hexSet (not serialized)
+  for (const b of mapData.terrainBlocks) {
+    b.boundary = hexSetToBoundary(b._hexSet || new Set());
+  }
+
   render();
-  showToast(`${terrain} 区域已添加`);
+  showToast(`${terrain} 区域已添加 (${newHexSet.size} 格)`);
+
+  // ── hexSetToBoundary helper ──
+  function hexSetToBoundary(hexSet) {
+    if (hexSet.size === 0) return [];
+    const pts = [];
+    for (const key of hexSet) {
+      const [q, r] = key.split('_').map(Number);
+      // Check if this hex is on boundary (has neighbor NOT in set)
+      let isEdge = false;
+      for (const [dq, dr] of DIR_VECTORS) {
+        if (!hexSet.has(`${q+dq}_${r+dr}`)) { isEdge = true; break; }
+      }
+      if (isEdge) {
+        const {x, y} = hexToPixel(q, r);
+        pts.push({x, y});
+      }
+    }
+    // Simple convex hull (approximate) — sort by angle around centroid
+    if (pts.length < 3) return pts;
+    const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+    pts.sort((a,b) => Math.atan2(a.y-cy, a.x-cx) - Math.atan2(b.y-cy, b.x-cx));
+    pts.push({...pts[0]});
+    return pts;
+  }
 }
 
 function renderLassoPreview() {
@@ -328,7 +387,8 @@ function renderLassoPreview() {
 }
 
 function renderEditorLayers() {
-  for (const layer of editorLayers) {
+  if (!mapData?.terrainBlocks) return;
+  for (const layer of mapData.terrainBlocks) {
     const color = getTerrainColor(layer.terrain) + '22';
     ctx.save();
     ctx.translate(offX, offY);
@@ -597,6 +657,37 @@ canvas.addEventListener('mousedown', e => {
     }
   }
 });
+
+// Compute hex set from polygon boundary (flood fill from seed)
+function hexSetFromPolygon(boundary, mapRadius) {
+  if (!boundary || boundary.length < 3) return new Set();
+  const r = mapRadius || 80;
+  // Find bounding box
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of boundary) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  // Find seed: center of bounding box
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const seedHex = pixelToHex(cx, cy);
+  if (!seedHex) return new Set();
+  // Flood fill inside polygon
+  const hexSet = new Set();
+  const stack = [`${seedHex.q}_${seedHex.r}`];
+  const visited = new Set();
+  while (stack.length) {
+    const key = stack.pop();
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const [q, r] = key.split('_').map(Number);
+    const px = q + r * 0.5, py = r * 0.866;
+    if (!pointInPolygon(px, py, boundary)) continue;
+    hexSet.add(key);
+    for (const [dq, dr] of DIR_VECTORS) {
+      const nk = `${q+dq}_${r+dr}`;
+      if (!visited.has(nk)) stack.push(nk);
+    }
+  }
+  return hexSet;
+}
 
 // Point-in-polygon test for terrain block queries
 function pointInPolygon(px, py, poly) {
@@ -909,6 +1000,7 @@ function updateProvDesc(name, val) {
 // ── API ─────────────────────────────────────────────────
 async function init() {
   MapAPI.init();
+  if (!MapAPI.worldId || MapAPI.worldId === 'default') MapAPI.worldId = 'logdemo';
   buildTerrainButtons(DEFAULT_TERRAINS);
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
@@ -971,24 +1063,16 @@ async function loadMap() {
     } else {
       mapData.terrainTypes = {...DEFAULT_TERRAINS};
     }
-    // Load contour editor layers
-    try {
-      const cr = await fetch(`/api/map/${MapAPI.worldId}/contour`);
-      if (cr.ok) {
-        const contour = await cr.json();
-        if (contour.editorLayers) {
-          editorLayers = contour.editorLayers;
-          mapData._contourEditorLayers = contour.editorLayers;
-        }
-      }
-    } catch(e) { /* no contour yet */ }
-    fitView();
-    setStatus(`已加载: ${MapAPI.worldId} (${Object.keys(mapData.hexes||{}).length} hex)`);
+    if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
+    if (!mapData.hexes) mapData.hexes = {};
+    setStatus(`已加载: ${MapAPI.worldId} (${mapData.terrainBlocks.length} 地形块)`);
   } catch(e) {
-    showToast('加载失败: '+e.message);
-    mapData = {hexes:{}, provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:30, hexOrientation:false, rivers:[], roads:[]};
-    fitView();
+    // Create empty map
+    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:80, hexOrientation:false, rivers:[], roads:[]};
+    buildTerrainButtons(DEFAULT_TERRAINS);
+    setStatus('空画布 — 点 🎲 生成新大陆');
   }
+  fitView();
 }
 
 async function saveMap() {
