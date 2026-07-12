@@ -210,6 +210,15 @@ public class TerrainCanvas {
             blocks.removeAll(toRemove);
             toRemove.clear();
 
+            // ── Phase C: remove empty blocks ──
+            for (Block existing : new ArrayList<>(blocks)) {
+                if (existing.hexSet(mapRadius).isEmpty()) {
+                    toRemove.add(existing);
+                }
+            }
+            blocks.removeAll(toRemove);
+            toRemove.clear();
+
             // ── Phase D: add the new block ──
             if (newSet.isEmpty()) return null;
 

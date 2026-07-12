@@ -341,15 +341,20 @@ function finishTerrainLasso() {
   const hexSet = new Set();
   const stack = [seedKey];
   const visited = new Set();
-  const maxHex = 5000;
+  const maxHex = 20000;
+  const mapR = mapData?.gridSize || 80;
+  const MAX_DIST = mapR * 2;
   while (stack.length && hexSet.size < maxHex) {
     const key = stack.pop();
     if (visited.has(key) || boundSet.has(key)) continue;
     visited.add(key);
     hexSet.add(key);
     const [q, r] = key.split('_').map(Number);
+    if (Math.abs(q) > MAX_DIST || Math.abs(r) > MAX_DIST) continue;
     for (const [dq, dr] of DIR_VECTORS) {
       const nk = `${q+dq}_${r+dr}`;
+      const nq = q + dq, nr = r + dr;
+      if (Math.abs(nq) > MAX_DIST || Math.abs(nr) > MAX_DIST) continue;
       if (!visited.has(nk) && !boundSet.has(nk)) stack.push(nk);
     }
   }
