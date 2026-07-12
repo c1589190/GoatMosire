@@ -355,8 +355,9 @@ function renderEditorLayers() {
 
 function setTool(t) {
   tool = t;
-  ['TerrainLasso','River','Province'].forEach(id =>
-    document.getElementById('btn'+id).classList.toggle('active', id.toLowerCase()===t));
+  document.getElementById('btnTerrainLasso').classList.toggle('active', t==='terrain_lasso');
+  document.getElementById('btnRiver').classList.toggle('active', t==='river');
+  document.getElementById('btnProvince').classList.toggle('active', t==='province');
   riverStart = null;
   provincePts = [];
   lassoPts = [];
@@ -730,16 +731,44 @@ function renderProvincePreview() {
 
 // ── Interaction ─────────────────────────────────────────
 let clickHex = null;
+let lassoing = false;  // right-drag lasso mode
 
-// (mousedown handler defined above in Province boundary dragging section)
+canvas.addEventListener('mousedown', e => {
+  // Left mouse: pan (or single click for lasso point)
+  // Right mouse: lasso drag
+  if (e.button === 2 || (e.button === 0 && e.ctrlKey)) {
+    // Right click or Ctrl+click: lasso mode
+    e.preventDefault();
+    lassoing = true;
+    const h = getHexAtEvent(e);
+    if (h && tool === 'terrain_lasso') applyTerrainLasso(h.q, h.r);
+    return;
+  }
+  if (e.button === 0) {
+    panStart = {x: e.clientX, y: e.clientY};
+    panOff = {x: offX, y: offY};
+    mouseDown = true;
+    clickHex = getHexAtEvent(e);
+  }
+});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault()); // disable browser menu
 
 canvas.addEventListener('mousemove', e => {
-  if (panStart) {
-    offX=panOff.x+(e.clientX-panStart.x); offY=panOff.y+(e.clientY-panStart.y);
+  if (panStart && !lassoing) {
+    offX = panOff.x + (e.clientX - panStart.x);
+    offY = panOff.y + (e.clientY - panStart.y);
     render(); return;
   }
 
-  // Handle province boundary dragging
+  if (lassoing && tool === 'terrain_lasso') {
+    const h = getHexAtEvent(e);
+    if (h && (!lassoPts.length || h.q !== lassoPts[lassoPts.length-1].q || h.r !== lassoPts[lassoPts.length-1].r)) {
+      applyTerrainLasso(h.q, h.r);
+    }
+    return;
+  }
+
   if (dragPoint) {
     const h = getHexAtEvent(e);
     if (h && (h.q !== dragPoint.q || h.r !== dragPoint.r)) {
@@ -747,14 +776,8 @@ canvas.addEventListener('mousemove', e => {
       const oldKey = `${dragPoint.q}_${dragPoint.r}`;
       const p = mapData.provinces[selectedProvince];
       if (p?.hexes) {
-        const inProvince = p.hexes.includes(newKey);
-        if (!inProvince && mapData.hexes[newKey]) {
-          // Dragging outward → add new hex
-          p.hexes.push(newKey);
-        } else if (inProvince && newKey !== oldKey) {
-          // Dragging inward → remove old boundary hex
-          p.hexes = p.hexes.filter(k => k !== oldKey);
-        }
+        if (!p.hexes.includes(newKey) && mapData.hexes[newKey]) p.hexes.push(newKey);
+        else if (p.hexes.includes(newKey) && newKey !== oldKey) p.hexes = p.hexes.filter(k => k !== oldKey);
         dragPoint = {q: h.q, r: h.r};
         render();
       }
@@ -762,49 +785,49 @@ canvas.addEventListener('mousemove', e => {
     return;
   }
 
-  const h=getHexAtEvent(e);
+  const h = getHexAtEvent(e);
   if (h) {
-    tooltip.style.display='block';
-    tooltip.style.left=(e.clientX+15)+'px';
-    tooltip.style.top=(e.clientY-20)+'px';
-    const cell=(mapData?.hexes||{})[`${h.q}_${h.r}`];
-    const tn=cell?.terrain||'empty';
-    const tt=terrainTypes[tn];
-    tooltip.textContent=`(${h.q},${h.r}) ${tn}`+(tt?` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}`:'');
-    if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
-    if (mouseDown && tool !== 'river' && tool !== 'province' && tool !== 'terrain_lasso') applyTool(h.q, h.r);
-  } else tooltip.style.display='none';
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 15) + 'px';
+    tooltip.style.top = (e.clientY - 20) + 'px';
+    const cell = (mapData?.hexes || {})[`${h.q}_${h.r}`];
+    const tn = cell?.terrain || 'empty';
+    const tt = terrainTypes[tn];
+    tooltip.textContent = `(${h.q},${h.r}) ${tn}` + (tt ? ` 🍖${tt.food} 💰${tt.gold} 🪨${tt.stone}` : '');
+  } else tooltip.style.display = 'none';
 });
 
-canvas.addEventListener('mouseup', () => {
-  if (dragPoint) {
-    dragPoint = null;
-    render();
+canvas.addEventListener('mouseup', e => {
+  if (lassoing) {
+    lassoing = false;
     return;
   }
+  if (dragPoint) { dragPoint = null; render(); return; }
   if (clickHex && tool === 'river') {
     addRiverWaypoint(clickHex.q, clickHex.r);
   } else if (clickHex && tool === 'province') {
     addProvincePoint(clickHex.q, clickHex.r);
-  } else if (clickHex && tool === 'terrain_lasso') {
-    applyTerrainLasso(clickHex.q, clickHex.r);
   } else if (clickHex && mouseDown) {
     showHexInfo(clickHex.q, clickHex.r);
   }
-  mouseDown=false; panStart=null; clickHex=null;
+  mouseDown = false; panStart = null; clickHex = null;
 });
-canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;tooltip.style.display='none';});
+
+canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;lassoing=false;tooltip.style.display='none';});
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
-  const f=e.deltaY<0?1.1:0.9;
-  const nz=Math.max(0.1,Math.min(5,zoom*f));
-  offX=e.offsetX-(e.offsetX-offX)*(nz/zoom);
-  offY=e.offsetY-(e.offsetY-offY)*(nz/zoom);
-  zoom=nz; render();
-}, {passive:false});
+  const zf = e.deltaY < 0 ? 1.1 : 1/1.1;
+  const nz = Math.max(0.1, Math.min(5, zoom * zf));
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  offX = mx - (mx - offX) * nz / zoom;
+  offY = my - (my - offY) * nz / zoom;
+  zoom = nz;
+  render();
+}, {passive: false});
 
 function getHexAtEvent(e) {
-  const r=canvas.getBoundingClientRect();
+  const r = canvas.getBoundingClientRect();
   return pixelToHex((e.clientX-r.left-offX)/zoom, (e.clientY-r.top-offY)/zoom);
 }
 
@@ -953,16 +976,21 @@ async function saveMap() {
     mapData.terrainTypes = {...DEFAULT_TERRAINS};
   }
   try {
+    // Strip editor layers before saving (they're not part of MapData)
+    const layers = mapData._contourEditorLayers;
+    delete mapData._contourEditorLayers;
     await MapAPI.save(mapData);
-    // Also save editor layers to contour
-    if (mapData._contourEditorLayers?.length > 0) {
+    mapData._contourEditorLayers = layers;  // restore
+    // Also save editor layers to contour if they exist
+    if (layers?.length > 0) {
       await fetch(`/api/map/${MapAPI.worldId}/contour/editor-layers`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(mapData._contourEditorLayers)
+        body: JSON.stringify(layers)
       });
     }
     showToast('已保存');
+    setStatus('已保存');
   } catch(e) { showToast('保存失败: '+e.message); }
 }
 
