@@ -812,6 +812,93 @@ function updateProvDesc(name, val) {
   if (mapData.provinces[name]) mapData.provinces[name].description = val;
 }
 
+// ── Province Lasso (right-drag) ──────────────────────────
+
+function addProvincePoint(q, r) {
+  if (provinceLasso.length > 0) {
+    const last = provinceLasso[provinceLasso.length - 1];
+    if (last.q === q && last.r === r) return;
+    const line = hexLine(last.q, last.r, q, r);
+    for (let i = 1; i < line.length; i++) provinceLasso.push(line[i]);
+  } else {
+    provinceLasso.push({q, r});
+  }
+  setStatus(`省份边界: ${provinceLasso.length} 点 — 松手创建`);
+  renderProvincePreview();
+}
+
+function renderProvincePreview() {
+  if (provinceLasso.length < 2) return;
+  ctx.save();
+  ctx.translate(offX, offY); ctx.scale(zoom, zoom);
+  ctx.strokeStyle = '#ff00ff'; ctx.lineWidth = 2/zoom;
+  ctx.beginPath();
+  for (const p of provinceLasso) {
+    const {x, y} = hexToPixel(p.q, p.r);
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath(); ctx.stroke(); ctx.restore();
+}
+
+function finishProvinceLasso() {
+  if (provinceLasso.length < 3) { provinceLasso = []; render(); return; }
+
+  const boundSet = new Set(provinceLasso.map(p => `${p.q}_${p.r}`));
+
+  let sumQ=0, sumR=0;
+  for (const k of boundSet) { const [q,r]=k.split('_').map(Number); sumQ+=q; sumR+=r; }
+  const cq=Math.round(sumQ/boundSet.size), cr=Math.round(sumR/boundSet.size);
+
+  let seed = null;
+  for (let r=0; r<200 && !seed; r++) {
+    if (r===0) { const k=`${cq}_${cr}`; if(!boundSet.has(k)&&mapData.hexes[k]){seed={q:cq,r:cr};break;} continue; }
+    let sq=cq+r*DIR_VECTORS[4][0], sr=cr+r*DIR_VECTORS[4][1];
+    for (let d=0;d<6&&!seed;d++) {
+      for (let s=0;s<r;s++) {
+        const k=`${sq}_${sr}`; if(!boundSet.has(k)&&mapData.hexes[k]){seed={q:sq,r:sr};break;}
+        sq+=DIR_VECTORS[d][0]; sr+=DIR_VECTORS[d][1];
+      }
+    }
+  }
+  if (!seed) { setStatus('省份: 无法找到内部区域'); provinceLasso=[]; render(); return; }
+
+  const interior=new Set(), queue=[seed], visited=new Set();
+  while (queue.length) {
+    const {q,r}=queue.pop(); const k=`${q}_${r}`;
+    if(visited.has(k))continue; visited.add(k); interior.add(k);
+    for (const [dq,dr] of DIR_VECTORS) {
+      const nk=`${q+dq}_${r+dr}`;
+      if(!boundSet.has(nk)&&!visited.has(nk)&&mapData.hexes[nk]) queue.push({q:q+dq,r:r+dr});
+    }
+  }
+
+  const name = prompt('省份名称:', `省${Object.keys(mapData.provinces||{}).length+1}`);
+  if (!name) { provinceLasso=[]; render(); return; }
+  if (!mapData.provinces) mapData.provinces = {};
+  mapData.provinces[name] = {
+    hexes: [...interior, ...boundSet],
+    color: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'),
+    tag:'',description:''
+  };
+  provinceLasso = []; selectedProvince=name;
+  showProvinceList(); render();
+  showToast(`省份「${name}」已创建`);
+}
+
+function computeBoundaryHexes(provinceName) {
+  const p = mapData?.provinces?.[provinceName];
+  if (!p?.hexes) return [];
+  const hexSet = new Set(p.hexes);
+  const boundary = [];
+  for (const key of p.hexes) {
+    const [q, r] = key.split('_').map(Number);
+    for (const [dq, dr] of DIR_VECTORS) {
+      if (!hexSet.has(`${q+dq}_${r+dr}`)) { boundary.push({q,r,key}); break; }
+    }
+  }
+  return boundary;
+}
+
 // ── API ─────────────────────────────────────────────────
 async function init() {
   try { MapAPI.init(); } catch(e) { console.warn(e); }
