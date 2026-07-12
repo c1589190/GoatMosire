@@ -65,7 +65,9 @@ public class TerrainCanvas {
 
         MapData.TerrainBlock toGsimBlock(int mapRadius) {
             Set<String> hs = hexSet(mapRadius);
-            return new MapData.TerrainBlock(terrain, List.copyOf(boundary), seedKey, hs);
+            // Only compute boundary if hexSet is small; otherwise skip (use empty boundary)
+            List<MapData.Pt> bnd = hs.size() <= 500 ? List.copyOf(boundary) : List.of();
+            return new MapData.TerrainBlock(terrain, bnd, seedKey, hs);
         }
     }
 
@@ -206,8 +208,10 @@ public class TerrainCanvas {
             if (newSet.isEmpty()) return null;
 
             String id = UUID.randomUUID().toString();
-            List<MapData.Pt> newBoundary = TerrainGeometry.hexSetToBoundary(newSet);
-            if (newBoundary.size() < 3) return null;
+            // Only compute boundary for small sets; large sets skip polygon
+            List<MapData.Pt> newBoundary = newSet.size() <= 500
+                ? TerrainGeometry.hexSetToBoundary(newSet) : List.of();
+            if (newSet.size() <= 500 && newBoundary.size() < 3) return null;
 
             Block newBlock = new Block(id, terrain, newBoundary, seedKey);
             newBlock.hexSet = newSet; // pre-warm cache
@@ -254,7 +258,12 @@ public class TerrainCanvas {
                 MapData.TerrainBlock gb = gsimBlocks.get(i);
                 String id = "b" + i + "_" + UUID.randomUUID().toString().substring(0, 8);
                 String seedKey = gb.seedKey() != null ? gb.seedKey() : "";
-                blocks.add(new Block(id, gb.terrain(), gb.boundary(), seedKey));
+                Block b = new Block(id, gb.terrain(), gb.boundary(), seedKey);
+                // Pre-warm hexSet from loaded hexKeys (skip boundary polygon)
+                if (!gb.hexKeys().isEmpty()) {
+                    b.hexSet = new HashSet<>(gb.hexKeys());
+                }
+                blocks.add(b);
             }
         } finally {
             lock.writeLock().unlock();
