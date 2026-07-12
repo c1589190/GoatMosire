@@ -517,30 +517,23 @@ function renderProvinceHighlight() {
 let dragPoint = null;
 
 canvas.addEventListener('mousedown', e => {
-  if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
-    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY}; return;
+  // Left click: pan
+  if (e.button === 0) {
+    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
+    e.preventDefault();
+    return;
   }
-  if (e.button !== 0) return;
-  mouseDown = true;
-  clickHex = getHexAtEvent(e);
-
-  // Check if clicking on a boundary dot for dragging
-  if (selectedProvince && canvas._boundaryHexes && tool === 'province') {
-    const r = canvas.getBoundingClientRect();
-    const mx = (e.clientX - r.left - offX) / zoom;
-    const my = (e.clientY - r.top - offY) / zoom;
-    for (const bp of canvas._boundaryHexes) {
-      const {x: bx, y: by} = hexToPixel(bp.q, bp.r);
-      const dist = Math.hypot(mx - bx, my - by);
-      if (dist < 8 / zoom) {
-        dragPoint = bp;
-        clickHex = null;
-        mouseDown = false;
-        return;
-      }
-    }
+  // Right click: paint
+  if (e.button === 2) {
+    e.preventDefault();
+    mouseDown = true;
+    clickHex = getHexAtEvent(e);
+    if (clickHex) applyTool(clickHex.q, clickHex.r);
+    return;
   }
 });
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 function hexLine(aq, ar, bq, br) {
   const dist = Math.max(Math.abs(bq - aq), Math.abs(br - ar), Math.abs((-bq-br) - (-aq-ar)));
