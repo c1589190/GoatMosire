@@ -304,47 +304,52 @@ function setTool(t) {
 
 // ── River Tool ──────────────────────────────────────────
 async function addRiverWaypoint(q, r) {
-  riverWaypoints.push(`${q}_${r}`);
-  if (riverWaypoints.length >= 2) {
-    // Auto-pathfind from previous waypoint to this one
-    const prev = riverWaypoints[riverWaypoints.length - 2];
-    try {
-      const rp = await fetch(`/api/map/${MapAPI.worldId}/river-path?q=${q}&r=${r}&node=${MapAPI.nodeId||''}`);
-      const data = await rp.json();
-      if (data.path?.length > 1) {
-        // Replace the direct jump with the computed path
-        riverWaypoints.pop();
-        riverWaypoints.push(...data.path);
-        setStatus(`河流: ${riverWaypoints.length} 段`);
-      }
-    } catch(e) { console.warn('River path failed:', e); }
+  setStatus('河流: 计算路径...');
+  try {
+    const rp = await fetch(`/api/map/${MapAPI.worldId}/river-path?q=${q}&r=${r}&node=${MapAPI.nodeId||''}`);
+    const data = await rp.json();
+    if (data.path?.length > 1) {
+      if (!mapData.rivers) mapData.rivers = [];
+      mapData.rivers.push({name:'', path: data.path, width: 3, color: '#3295D2'});
+      render();
+      setStatus(`河流: ${data.path.length} 段 → 水域`);
+      showToast(`河流已放置 (${mapData.rivers.length} 条)`);
+    } else {
+      setStatus('河流: 未找到水域路径');
+      showToast('该位置无法找到通往水域的路径');
+    }
+  } catch(e) {
+    setStatus('河流: 寻路失败');
+    console.warn('River path failed:', e);
   }
-  if (!mapData.rivers) mapData.rivers = [];
-  mapData.rivers.push({name:'', path:[...riverWaypoints], width:3, color:'#3295D2'});
-  riverWaypoints = [];
-  render();
-  showToast(`河流已放置 (${mapData.rivers.length} 条)`);
 }
 
 // ── River Rendering (added to render function) ──
 function renderRivers() {
   if (!mapData?.rivers) return;
-  ctx.save();
-  ctx.translate(offX, offY);
-  ctx.scale(zoom, zoom);
-  ctx.lineCap = 'round';
-  for (const river of mapData.rivers) {
-    if (!river.path || river.path.length < 2) continue;
-    ctx.strokeStyle = river.color || '#3295D2';
-    ctx.lineWidth = (river.width || 3) / zoom;
+  const drawPath = (path, color, width) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width / zoom;
     ctx.beginPath();
-    for (let i = 0; i < river.path.length; i++) {
-      const [q, r] = river.path[i].split('_').map(Number);
+    for (let i = 0; i < path.length; i++) {
+      const [q, r] = path[i].split('_').map(Number);
       const {x, y} = hexToPixel(q, r);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
+  };
+
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const river of mapData.rivers) {
+    if (!river.path || river.path.length < 2) continue;
+    const w = river.width || 4;
+    drawPath(river.path, 'rgba(255,255,255,0.5)', w + 2);  // white outline
+    drawPath(river.path, river.color || '#3295D2', w);       // colored river
   }
   ctx.restore();
 }
