@@ -184,9 +184,12 @@ public class MapApiHandler implements HttpHandler {
         ContinentContour contour = gen.generateContour(landRatio);
         mapService.saveContour(worldId, contour);
 
-        // Materialize full map
+        // Also materialize full map for editor rendering
         MapData map = MapGenerator.generate(worldId, seed, radius, mainCount, fragmentCount, landRatio, coastRoughness);
         mapService.saveFull(worldId, "n0000", map);
+
+        // Populate terrain blocks from contour: create blocks for land areas
+        populateTerrainBlocks(worldId, contour, radius);
         mapService.evictCanvas(worldId);
 
         sendJson(exchange, 200, Map.of(
@@ -339,6 +342,50 @@ public class MapApiHandler implements HttpHandler {
         }
     }
 
+    /** Create terrain blocks from contour ridge lines */
+    private void populateTerrainBlocks(String worldId, ContinentContour contour, int radius) {
+        TerrainCanvas canvas = mapService.getCanvas(worldId);
+
+        for (ContinentContour.Ridge ridge : contour.ridges) {
+            if (ridge.points.size() < 2) continue;
+
+            // Build a thick polygon around the ridge line
+            List<MapData.Pt> pts = new ArrayList<>();
+            double width = radius * (ridge.weight > 0.8 ? 0.12 : 0.06);
+
+            for (int i = 0; i < ridge.points.size(); i++) {
+                ContinentContour.Pt p = ridge.points.get(i);
+                double angle = Math.atan2(
+                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).y : p.y + 1) - (i > 0 ? ridge.points.get(i-1).y : p.y - 1),
+                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).x : p.x + 1) - (i > 0 ? ridge.points.get(i-1).x : p.x - 1));
+                // Convert axial → pixel (with GRID scaling for TerrainGeometry)
+                double GRID = 30.0;
+                double px = (p.x + p.y * 0.5) * GRID;
+                double py = p.y * 0.8660254 * GRID;
+                pts.add(new MapData.Pt(px + nx, py + ny));
+            }
+            for (int i = ridge.points.size() - 1; i >= 0; i--) {
+                ContinentContour.Pt p = ridge.points.get(i);
+                double angle = Math.atan2(
+                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).y : p.y + 1) - (i > 0 ? ridge.points.get(i-1).y : p.y - 1),
+                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).x : p.x + 1) - (i > 0 ? ridge.points.get(i-1).x : p.x - 1));
+                double nx = Math.cos(angle - Math.PI/2) * width;
+                double ny = Math.sin(angle - Math.PI/2) * width;
+                // Convert axial → pixel (with GRID scaling)
+                double px2 = (p.x + p.y * 0.5) * GRID;
+                double py2 = p.y * 0.8660254 * GRID;
+                pts.add(new MapData.Pt(px2 + nx, py2 + ny));
+            }
+            // Close
+            if (!pts.isEmpty()) pts.add(new MapData.Pt(pts.get(0).x(), pts.get(0).y()));
+
+            String terrain = ridge.weight > 0.8 ? "hills" : "plains";
+            String seedKey = TerrainGeometry.hexKey(
+                TerrainGeometry.pixelToHex(ridge.points.get(0).x, ridge.points.get(0).y)[0],
+                TerrainGeometry.pixelToHex(ridge.points.get(0).x, ridge.points.get(0).y)[1]);
+            canvas.addBlock(terrain, pts, seedKey);
+        }
+    }
     // ── Helpers ───────────────────────────────────────────
 
     private void sendJson(HttpExchange exchange, int status, Object data) throws IOException {
