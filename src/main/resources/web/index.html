@@ -727,3 +727,106 @@ init();
 </script>
 </body>
 </html>
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 2) {
+    e.preventDefault();
+    if (tool === 'province') {
+      provinceLasso = [];
+      const h = getHexAtEvent(e);
+      if (h) addProvincePoint(h.q, h.r);
+      return;
+    }
+    mouseDown = true;
+    clickHex = getHexAtEvent(e);
+    if (clickHex) applyTool(clickHex.q, clickHex.r);
+    return;
+  }
+  if (e.button === 0) {
+    if (tool === 'province' && selectedProvince && canvas._boundaryHexes) {
+      const r = canvas.getBoundingClientRect();
+      const mx = (e.clientX - r.left - offX) / zoom;
+      const my = (e.clientY - r.top - offY) / zoom;
+      for (const bp of canvas._boundaryHexes) {
+        const {x: bx, y: by} = hexToPixel(bp.q, bp.r);
+        if (Math.hypot(mx - bx, my - by) < 8/zoom) { dragPoint = bp; return; }
+      }
+    }
+    panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
+    e.preventDefault();
+  }
+});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+
+canvas.addEventListener('mousemove', e => {
+  if (panStart) {
+    offX = panOff.x + (e.clientX - panStart.x);
+    offY = panOff.y + (e.clientY - panStart.y);
+    render(); return;
+  }
+  if (tool === 'province' && provinceLasso.length > 0) {
+    const h = getHexAtEvent(e);
+    if (h) addProvincePoint(h.q, h.r);
+    return;
+  }
+  if (dragPoint) {
+    const h = getHexAtEvent(e);
+    if (h && (h.q !== dragPoint.q || h.r !== dragPoint.r)) {
+      const newKey = h.q + '_' + h.r;
+      const p = mapData.provinces[selectedProvince];
+      if (p?.hexes) {
+        if (!p.hexes.includes(newKey) && mapData.hexes[newKey]) p.hexes.push(newKey);
+        else if (p.hexes.includes(newKey)) p.hexes = p.hexes.filter(k => k !== newKey);
+        dragPoint = {q: h.q, r: h.r};
+        render();
+      }
+    }
+    return;
+  }
+  const h = getHexAtEvent(e);
+  if (h) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 15) + 'px';
+    tooltip.style.top = (e.clientY - 20) + 'px';
+    const cell = (mapData?.hexes||{})[h.q+'_'+h.r];
+    const tn = cell?.terrain || 'empty';
+    const tt = terrainTypes[tn];
+    tooltip.textContent = '('+h.q+','+h.r+') '+tn+(tt?' food:'+tt.food+' gold:'+tt.gold+' stone:'+tt.stone:'');
+    if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
+    if (mouseDown && tool !== 'river' && tool !== 'province') applyTool(h.q, h.r);
+  } else tooltip.style.display = 'none';
+});
+
+canvas.addEventListener('mouseup', () => {
+  if (tool === 'province' && provinceLasso.length > 2) {
+    finishProvinceLasso();
+    provinceLasso = [];
+    return;
+  }
+  provinceLasso = [];
+  if (dragPoint) { dragPoint = null; render(); return; }
+  if (clickHex && tool === 'river') {
+    addRiverWaypoint(clickHex.q, clickHex.r);
+  } else if (clickHex && mouseDown) {
+    showHexInfo(clickHex.q, clickHex.r);
+  }
+  mouseDown = false; panStart = null; clickHex = null;
+});
+
+canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;tooltip.style.display='none';});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = e.deltaY < 0 ? 1.1 : 0.9;
+  const nz = Math.max(0.1, Math.min(5, zoom * f));
+  const r = canvas.getBoundingClientRect();
+  offX = e.clientX - r.left - (e.clientX - r.left - offX) * (nz / zoom);
+  offY = e.clientY - r.top - (e.clientY - r.top - offY) * (nz / zoom);
+  zoom = nz;
+  render();
+}, {passive: false});
+
+
+
