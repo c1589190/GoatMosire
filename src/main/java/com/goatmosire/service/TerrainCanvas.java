@@ -184,39 +184,32 @@ public class TerrainCanvas {
             toRemove.clear();
 
             // ── Phase B: different-terrain → new block wins, carve old ──
+            List<Block> newFragments = new ArrayList<>();
             for (Block existing : new ArrayList<>(blocks)) {
                 if (existing.terrain.equals(terrain)) continue;
                 Set<String> es = existing.hexSet(mapRadius);
 
-                // Check overlap
                 Set<String> overlap = new HashSet<>(es);
                 overlap.retainAll(newSet);
-
                 if (overlap.isEmpty()) continue;
 
-                // New block overwrites: remove overlap from old block
                 es.removeAll(overlap);
+                toRemove.add(existing);
 
-                if (es.isEmpty()) {
-                    // Old block fully covered → remove it
-                    toRemove.add(existing);
-                } else {
-                    // Old block partially covered → rebuild boundary
-                    existing.invalidateCache();
-                    existing.boundary = es.size() <= 500
-                        ? TerrainGeometry.hexSetToBoundary(es) : List.of();
+                if (!es.isEmpty()) {
+                    // Split remaining hexes into connected components
+                    List<Set<String>> components = splitComponents(es);
+                    for (Set<String> comp : components) {
+                        List<MapData.Pt> bnd = comp.size() <= 500
+                            ? TerrainGeometry.hexSetToBoundary(comp) : List.of();
+                        Block frag = new Block(UUID.randomUUID().toString(), existing.terrain, bnd, existing.seedKey);
+                        frag.hexSet = comp;
+                        newFragments.add(frag);
+                    }
                 }
             }
             blocks.removeAll(toRemove);
-            toRemove.clear();
-
-            // ── Phase C: remove empty blocks ──
-            for (Block existing : new ArrayList<>(blocks)) {
-                if (existing.hexSet(mapRadius).isEmpty()) {
-                    toRemove.add(existing);
-                }
-            }
-            blocks.removeAll(toRemove);
+            blocks.addAll(newFragments);
             toRemove.clear();
 
             // ── Phase D: add the new block ──
@@ -261,6 +254,30 @@ public class TerrainCanvas {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    /** Split a hex set into connected components (by hex adjacency). */
+    private static List<Set<String>> splitComponents(Set<String> hexSet) {
+        List<Set<String>> result = new ArrayList<>();
+        Set<String> remaining = new HashSet<>(hexSet);
+        while (!remaining.isEmpty()) {
+            String seed = remaining.iterator().next();
+            remaining.remove(seed);
+            Set<String> comp = new HashSet<>();
+            Deque<String> stack = new ArrayDeque<>();
+            stack.push(seed);
+            while (!stack.isEmpty()) {
+                String key = stack.pop();
+                comp.add(key);
+                int[] h = MapData.parseHexKey(key);
+                for (int[] d : TerrainGeometry.DIRS) {
+                    String nk = MapData.hexKey(h[0] + d[0], h[1] + d[1]);
+                    if (remaining.remove(nk)) stack.push(nk);
+                }
+            }
+            result.add(comp);
+        }
+        return result;
     }
 
     /** Load blocks from gsim-core records (replaces canvas state). */
