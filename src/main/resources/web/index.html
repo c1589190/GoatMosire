@@ -563,30 +563,47 @@ function addProvincePoint(q, r) {
 }
 
 function finishProvince() {
-  // Flood fill interior from center of bounding box
   const boundSet = new Set(provincePts.map(p => `${p.q}_${p.r}`));
-  // Find seed: hex inside boundary that's NOT on boundary
-  let minQ = Infinity, maxQ = -Infinity, minR = Infinity, maxR = -Infinity;
-  for (const p of provincePts) { minQ=Math.min(minQ,p.q); maxQ=Math.max(maxQ,p.q); minR=Math.min(minR,p.r); maxR=Math.max(maxR,p.r); }
+
+  // Find seed: use the average of boundary points as center, find nearest non-boundary hex
+  let sumQ = 0, sumR = 0;
+  for (const p of provincePts) { sumQ += p.q; sumR += p.r; }
+  const cq = Math.round(sumQ / provincePts.length);
+  const cr = Math.round(sumR / provincePts.length);
+
+  // Spiral from center to find a non-boundary hex
   let seed = null;
-  for (let q = minQ+1; q < maxQ && !seed; q++) {
-    for (let r = minR+1; r < maxR && !seed; r++) {
-      if (!boundSet.has(`${q}_${r}`) && mapData.hexes[`${q}_${r}`]) seed = {q, r};
+  for (let r = 0; r < 200 && !seed; r++) {
+    if (r === 0) {
+      const k = `${cq}_${cr}`;
+      if (!boundSet.has(k) && mapData.hexes[k]) { seed = {q: cq, r: cr}; break; }
+      continue;
+    }
+    let sq = cq + r * DIR_VECTORS[4][0]; // NW of ring
+    let sr = cr + r * DIR_VECTORS[4][1];
+    for (let d = 0; d < 6 && !seed; d++) {
+      for (let s = 0; s < r; s++) {
+        const k = `${sq}_${sr}`;
+        if (!boundSet.has(k) && mapData.hexes[k]) { seed = {q: sq, r: sr}; break; }
+        sq += DIR_VECTORS[d][0]; sr += DIR_VECTORS[d][1];
+      }
     }
   }
-  if (!seed) { setStatus('省份: 无法找到内部区域'); provincePts=[]; return; }
+  if (!seed) { setStatus('省份: 无法找到内部区域'); provincePts = []; return; }
 
-  // Flood fill to find all interior hexes
+  // Flood fill interior (bounded)
   const interior = new Set();
   const queue = [seed];
   const visited = new Set();
-  interior.add(`${seed.q}_${seed.r}`);
-  while (queue.length) {
+  const MAX_FILL = 5000;
+  let count = 0;
+  while (queue.length && count < MAX_FILL) {
     const {q, r} = queue.pop();
     const k = `${q}_${r}`;
     if (visited.has(k)) continue;
     visited.add(k);
     interior.add(k);
+    count++;
     for (const [dq, dr] of DIR_VECTORS) {
       const nk = `${q+dq}_${r+dr}`;
       if (!boundSet.has(nk) && !visited.has(nk) && mapData.hexes[nk]) {
@@ -595,9 +612,12 @@ function finishProvince() {
     }
   }
 
+  if (count >= MAX_FILL) { setStatus(`省份: 填充超限 (${MAX_FILL}), 边界可能不闭合`); provincePts = []; return; }
+
   // Create province — include boundary hexes + interior
   const name = prompt('省份名称:', `省${Object.keys(mapData.provinces||{}).length + 1}`);
   if (!name) { provincePts = []; render(); setStatus('省份: 已取消'); return; }
+  const mapSize = Object.keys(mapData.hexes).length;
   if (!mapData.provinces) mapData.provinces = {};
   const allHexes = [...interior, ...boundSet];
   mapData.provinces[name] = {
@@ -610,8 +630,8 @@ function finishProvince() {
   setTool('province');
   showProvinceList();
   render();
-  showToast(`省份「${name}」已创建 (${interior.size} 格)`);
-  setStatus(`省份「${name}」: ${interior.size} 格`);
+  showToast(`省份「${name}」已创建 (${allHexes.length} 格)`);
+  setStatus(`省份「${name}」: ${allHexes.length} 格, 地图共 ${mapSize} 格`);
 }
 
 function renderProvincePreview() {
