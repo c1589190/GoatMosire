@@ -45,6 +45,9 @@ public class McpToolRegistry {
             case "goatmosire_find_river_path" -> handleFindRiverPath(args);
             case "goatmosire_list_regions"  -> handleListRegions(args);
             case "goatmosire_get_distance"  -> handleGetDistance(args);
+            case "goatmosire_update_region" -> handleUpdateRegion(args);
+            case "goatmosire_add_hex_to_region" -> handleAddHexToRegion(args);
+            case "goatmosire_remove_hex_from_region" -> handleRemoveHexFromRegion(args);
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
     }
@@ -152,6 +155,41 @@ public class McpToolRegistry {
               "fromRegion":{"type":"string"},
               "toRegion":{"type":"string"}
             },"required":["worldId"]}""");
+
+        register("goatmosire_update_region",
+            "Update a region's properties (hexes, tag, description, color). Auto-saves after change.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "name":{"type":"string","description":"Region name"},
+              "tag":{"type":"string","description":"New tag (optional)"},
+              "description":{"type":"string","description":"New description (optional)"},
+              "color":{"type":"string","description":"New hex color (optional)"},
+              "hexes":{"type":"array","items":{"type":"string"},"description":"New hex key list e.g. ['10_-5','11_-5'] (optional)"}
+            },"required":["worldId","name"]}""");
+
+        register("goatmosire_add_hex_to_region",
+            "Add a single hex to a region. Auto-saves after change.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "name":{"type":"string","description":"Region name"},
+              "q":{"type":"integer"},
+              "r":{"type":"integer"}
+            },"required":["worldId","name","q","r"]}""");
+
+        register("goatmosire_remove_hex_from_region",
+            "Remove a single hex from a region. Auto-saves after change.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "name":{"type":"string","description":"Region name"},
+              "q":{"type":"integer"},
+              "r":{"type":"integer"}
+            },"required":["worldId","name","q","r"]}""");
     }
 
     private void register(String name, String description, String schema) {
@@ -470,6 +508,97 @@ public class McpToolRegistry {
             }
         }
         return result;
+    }
+
+    // ── Write tools ───────────────────────────────────────
+
+    private String handleUpdateRegion(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
+        String name = args.get("name").asText();
+        MapData map = mapService.resolve(worldId, nodeId);
+        MapData.Province prov = map.provinces().get(name);
+        if (prov == null) return toJson(Map.of("ok", false, "error", "Region not found: " + name));
+
+        // Read optional fields
+        String newTag = args.has("tag") ? args.get("tag").asText() : prov.tag();
+        String newDesc = args.has("description") ? args.get("description").asText() : prov.description();
+        String newColor = args.has("color") ? args.get("color").asText() : prov.color();
+        List<String> newHexes = prov.hexes();
+        if (args.has("hexes")) {
+            newHexes = new ArrayList<>();
+            for (JsonNode n : args.get("hexes")) newHexes.add(n.asText());
+        }
+
+        // Build updated province
+        Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
+        updatedProvinces.put(name, new MapData.Province(newHexes, newColor, newTag, newDesc));
+
+        // Rebuild MapData with updated provinces
+        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), updatedProvinces, map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes());
+        mapService.saveFull(worldId, nodeId, updated);
+        mapService.syncToGSimNode(worldId, nodeId);
+
+        return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(),
+            "tag", newTag, "description", newDesc));
+    }
+
+    private String handleAddHexToRegion(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
+        String name = args.get("name").asText();
+        int q = args.get("q").asInt();
+        int r = args.get("r").asInt();
+        MapData map = mapService.resolve(worldId, nodeId);
+        MapData.Province prov = map.provinces().get(name);
+        if (prov == null) return toJson(Map.of("ok", false, "error", "Region not found: " + name));
+
+        String hexKey = MapData.hexKey(q, r);
+        if (!map.hexes().containsKey(hexKey))
+            return toJson(Map.of("ok", false, "error", "Hex not on map: " + hexKey));
+
+        List<String> newHexes = new ArrayList<>(prov.hexes());
+        if (newHexes.contains(hexKey))
+            return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "note", "hex already in region"));
+
+        newHexes.add(hexKey);
+        Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
+        updatedProvinces.put(name, new MapData.Province(newHexes, prov.color(), prov.tag(), prov.description()));
+        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), updatedProvinces, map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes());
+        mapService.saveFull(worldId, nodeId, updated);
+        mapService.syncToGSimNode(worldId, nodeId);
+
+        return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "added", hexKey));
+    }
+
+    private String handleRemoveHexFromRegion(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
+        String name = args.get("name").asText();
+        int q = args.get("q").asInt();
+        int r = args.get("r").asInt();
+        MapData map = mapService.resolve(worldId, nodeId);
+        MapData.Province prov = map.provinces().get(name);
+        if (prov == null) return toJson(Map.of("ok", false, "error", "Region not found: " + name));
+
+        String hexKey = MapData.hexKey(q, r);
+        List<String> newHexes = new ArrayList<>(prov.hexes());
+        if (!newHexes.remove(hexKey))
+            return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "note", "hex was not in region"));
+
+        Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
+        updatedProvinces.put(name, new MapData.Province(newHexes, prov.color(), prov.tag(), prov.description()));
+        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), updatedProvinces, map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes());
+        mapService.saveFull(worldId, nodeId, updated);
+        mapService.syncToGSimNode(worldId, nodeId);
+
+        return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "removed", hexKey));
     }
 
     private static String toJson(Object obj) throws Exception {
