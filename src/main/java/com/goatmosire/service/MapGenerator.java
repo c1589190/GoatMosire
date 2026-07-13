@@ -139,8 +139,9 @@ public class MapGenerator {
 
         LinkedHashMap<String, MapData.TerrainType> terrainTypes = defaultTerrainTypes();
         Map<String, MapData.HexCell> hexes = new LinkedHashMap<>();
-        // 基准海平面提升到可见范围
-        double baseSeaLevel = 0.18 + (1.0 - landRatio) * 0.05;
+
+        // 海平面独立于高度计算：landRatio 高 → 海平面降低 → 更多陆地
+        double seaLevel = 0.38 - landRatio * 0.30;  // landRatio 0.6 → seaLevel=0.20
 
         for (int q = -radius; q <= radius; q++) {
             for (int r = -radius; r <= radius; r++) {
@@ -154,8 +155,15 @@ public class MapGenerator {
                 double warpX = noise.noise2(px * 0.015 + 300, py * 0.015 + 300) * radius * 0.10;
                 double warpY = noise.noise2(px * 0.015 + 700, py * 0.015 + 700) * radius * 0.10;
 
-                double height = computeHeight(px + warpX, py + warpY, baseSeaLevel, landRatio);
-                String terrain = classifyByHeight(height, px, py);
+                double rawHeight = computeHeight(px + warpX, py + warpY);
+                String terrain;
+                if (rawHeight < seaLevel) {
+                    terrain = "water";
+                } else {
+                    // 将 seaLevel 映射到分类的 0 基准
+                    double normHeight = (rawHeight - seaLevel) / (1.0 - seaLevel);
+                    terrain = classifyByHeight(normHeight, px, py);
+                }
 
                 if ("water".equals(terrain)) {
                     hexes.put(MapData.hexKey(q, r), waterCell());
@@ -171,42 +179,39 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Height Computation v5.1 — Ridge-forward
+    //  Height Computation v5.2 — Sea-level-separated
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Ridge weight dominates (0.70) so mountains pierce the noise floor.
-     * Shelf noise is mild (0.28) — just enough for gentle continental bias.
-     * landBias is capped low so mountains are visible at all land ratios.
+     * Raw landscape height (0–1 range). Does NOT include sea-level subtraction.
+     * Ridge contributes 0.65, shelf 0.40 base, terrain 0.30 relief.
+     * Ridge decay k lowered to 7–10 so mountains have visible width.
      */
-    private double computeHeight(double px, double py, double baseSeaLevel, double landRatio) {
+    private double computeHeight(double px, double py) {
         double ridgeH    = computeRidgeHeight(px, py);
         double shelfFreq = 2.0 / radius, terrainFreq = 5.0 / radius, detailFreq = 12.0 / radius;
 
-        // 大陆架：低频轻偏置
-        double shelf   = noise.noise2(px * shelfFreq + 100, py * shelfFreq + 100) * 0.40 + 0.08;
+        // 大陆架基座：低频噪声提供稳定的陆地抬升
+        double shelf   = noise.noise2(px * shelfFreq + 100, py * shelfFreq + 100) * 0.50 + 0.35;
 
-        // 地形：中频
+        // 中频地形起伏
         double terrain = noise.noise2(px * terrainFreq + 200, py * terrainFreq + 200) * 0.30;
 
-        // 细节：高频小振幅
+        // 高频细节
         double detail  = noise.noise2(px * detailFreq + 400, py * detailFreq + 400) * 0.08;
 
         double valley  = computeValleyPenalty(px, py);
 
-        // 陆地偏置：微弱调整，不让脊线被埋没
-        double landBias = Math.max(0, (landRatio - 0.45) * 0.10);
-
-        return ridgeH * 0.70 + shelf * 0.28 + terrain * 0.30 + detail * 0.10
-             - valley * 0.12 - baseSeaLevel * 0.85 + landBias;
+        // ridge 0.65: 山脉要强但不过度   shelf 0.40: 大陆基座   terrain 0.30: 中频起伏
+        return ridgeH * 0.65 + shelf * 0.40 + terrain * 0.30 + detail * 0.10 - valley * 0.12;
     }
 
-    /** Sharp ridge attenuation — k=11~14 for thin spines. */
+    /** Ridge attenuation — k=7~10 for visible thickness (not needle-thin). */
     private double computeRidgeHeight(double px, double py) {
         double best = 0;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
-            double k = 11.0 + r.weight * 4.0;   // main ~14, secondary ~12, fragment ~10
+            double k = 7.0 + r.weight * 3.5;   // main ~9.8, secondary ~8.2, fragment ~7.5
             double h = Math.exp(-d * k / radius);
             if (h > best) best = h;
         }
@@ -227,46 +232,38 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Classification v5.1 — Tightened intervals
+    //  Classification v5.2 — Normalised height (0=seaLevel, 1=peak)
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Tightened bands so terrain layers are clearly visible:
+     * Height is already normalised: water is filtered out before this call.
      * <pre>
-     *   mountain  > 0.68        thinner, sharper peaks
-     *   hills     0.50 – 0.68
-     *   plains    0.38 – 0.50  smaller area, mixed with hill patches
-     *   lowland   0.18 – 0.38  dominant lowland, ~15% plains patches inside
-     *   swamp     0.12 – 0.18  coastal / low-lying
-     *   water     < 0.12
+     *   mountain  > 0.65
+     *   hills     0.48 – 0.65
+     *   plains    0.36 – 0.48  (smaller area, mixed hill patches)
+     *   lowland   0.16 – 0.36  (dominant, ~15% plains patches inside)
+     *   swamp     < 0.16       (coastal / low-lying near water)
      * </pre>
      */
     private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        if (height > 0.68) return "mountain";
-        if (height > 0.50) {
-            // hills 带少量 plains 斑块
+        if (height > 0.65) return "mountain";
+        if (height > 0.48) {
+            return (moisture + noise.noise2(px * 0.06, py * 0.06)) > 0.08 ? "hills" : "plains";
+        }
+
+        if (height > 0.36) {
             return (moisture + noise.noise2(px * 0.06, py * 0.06)) > 0.10 ? "hills" : "plains";
         }
 
-        if (height > 0.38) {
-            // 较高平原，掺入 hills 斑块 → 面积较小
-            return (moisture + noise.noise2(px * 0.06, py * 0.06)) > 0.12 ? "hills" : "plains";
-        }
-
-        if (height > 0.18) {
-            // 低地主导，内部随机 plains 斑块 ~12–18%
+        if (height > 0.16) {
             double patchNoise = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
             if (patchNoise > 0.44) return "plains";
             return "lowland";
         }
 
-        // 极低
-        if (height > 0.12) {
-            return moisture > -0.15 ? "swamp" : "lowland";
-        }
-        return "water";
+        return moisture > -0.15 ? "swamp" : "lowland";
     }
 
     // ═══════════════════════════════════════════════════════
