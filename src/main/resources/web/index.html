@@ -136,7 +136,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
 <script>
 // ── Default Terrain Types (8 standard terrains) ─────────
 const DEFAULT_TERRAINS = {
-  plains:   {name:"plains",   color:"#6CC261", food:3, gold:1, stone:1, moveCost:1, description:"平原"},
+  lowland:  {name:"lowland",  color:"#5B8C3E", food:3, gold:1, stone:1, moveCost:1, description:"低地"},
+  plains:   {name:"plains",   color:"#C5B358", food:2, gold:2, stone:1, moveCost:1, description:"平原"},
   forest:   {name:"forest",   color:"#228B22", food:2, gold:1, stone:3, moveCost:2, description:"森林"},
   mountain: {name:"mountain", color:"#808080", food:0, gold:2, stone:5, moveCost:3, description:"山地"},
   water:    {name:"water",    color:"#3295D2", food:1, gold:0, stone:0, moveCost:99,description:"水域"},
@@ -149,7 +150,7 @@ const DEFAULT_TERRAINS = {
 // ── State ───────────────────────────────────────────────
 let mapData = null;
 let terrainTypes = DEFAULT_TERRAINS;   // active terrain palette
-let activeTerrain = 'plains';          // currently selected terrain
+let activeTerrain = 'lowland';          // currently selected terrain
 let tool = 'pen';
 let selectedProvince = null;
 let activeTag = null;  // currently selected tag for region creation
@@ -690,8 +691,8 @@ function addRiverWaypoint(q, r) {
     return;
   }
   const ak = `${riverStart.q}_${riverStart.r}`, bk = `${q}_${r}`;
-  if (!mapData.hexes[ak]) mapData.hexes[ak] = {color:'#6CC261',terrain:'plains',riverMask:0};
-  if (!mapData.hexes[bk]) mapData.hexes[bk] = {color:'#6CC261',terrain:'plains',riverMask:0};
+  if (!mapData.hexes[ak]) mapData.hexes[ak] = {color:'#6CC261',terrain:'lowland',riverMask:0};
+  if (!mapData.hexes[bk]) mapData.hexes[bk] = {color:'#6CC261',terrain:'lowland',riverMask:0};
   mapData.hexes[ak].riverMask = (mapData.hexes[ak].riverMask || 0) | (1 << d);
   mapData.hexes[bk].riverMask = (mapData.hexes[bk].riverMask || 0) | (1 << OPPOSITE_DIR[d]);
   render();
@@ -755,7 +756,7 @@ async function generateWorld() {
   setStatus('🎲 生成大陆中...');
   try {
     const seed = Date.now();
-    const r = await fetch(`/api/map/${MapAPI.worldId}/generate?seed=${seed}&ridges=6&fragments=12&land=0.35&roughness=0.5&radius=120`, {method:'POST'});
+    const r = await fetch(`/api/map/${MapAPI.worldId}/generate?seed=${seed}&ridges=2&fragments=5&land=0.60&roughness=0.5&radius=120`, {method:'POST'});
     const data = await r.json();
     showToast(`大陆已生成: ${data.landHexes} 格陆地 / ${data.hexCount} 格总 (seed:${data.seed})`);
     setStatus(`大陆: ${data.landHexes} 格陆地 | 🍖平原 🌲森林 ⛰山地 ⛰丘陵`);
