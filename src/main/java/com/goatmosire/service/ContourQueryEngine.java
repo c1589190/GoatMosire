@@ -171,17 +171,23 @@ public class ContourQueryEngine {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
         if (height > 0.68) return "mountain";
         if (height > 0.48) return "hills";
-        if (height > 0.22) return "plains";
-        if (height > 0.10) return moisture > 0.1 ? "forest" : "plains";
-        return moisture > 0.2 ? "swamp" : "plains";
+        // plains 面积缩小：0.35-0.48 区间，部分掺入 hills
+        if (height > 0.35) return moisture > 0.05 ? "hills" : "plains";
+        // lowland (原 forest) 区间扩大：0.12-0.35，内部随机 plains 斑块
+        if (height > 0.12) {
+            double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
+            if (patch > 0.44) return "plains";  // ~12% 斑块
+            return "lowland";
+        }
+        return moisture > 0.15 ? "swamp" : "lowland";
     }
 
     private static String terrainColor(String t) {
         return switch (t) {
             case "mountain" -> "#808080";
-            case "hills"    -> "#BDB76B";
-            case "forest"   -> "#228B22";
-            case "plains"   -> "#6CC261";
+            case "hills"    -> "#A0522D";
+            case "lowland"  -> "#5B8C3E";
+            case "plains"   -> "#C5B358";
             case "swamp"    -> "#556B2F";
             case "desert"   -> "#DDC88D";
             case "tundra"   -> "#A8C4D8";
