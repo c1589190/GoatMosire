@@ -100,10 +100,10 @@ public class ContourQueryEngine {
         // Valley
         double valley = computeValleyPenalty(wpx, wpy);
 
-        // Height assembly
-        double height = ridgeH * 0.55 + shelf * 0.40 + multi * 0.50 - valley;
+        // Height assembly — ridge weight raised for wider mountain spines
+        double height = ridgeH * 0.68 + shelf * 0.35 + multi * 0.45 - valley;
         height = Math.max(0, height);
-        height = Math.pow(height, 0.85);
+        height = Math.pow(height, 0.92);  // 0.85→0.92 让山脉更宽更长条
 
         // Coast noise → sea level
         double coastNoise = noise.noise2(wpx * contour.coastFreq + 77, wpy * contour.coastFreq + 77);
@@ -127,7 +127,7 @@ public class ContourQueryEngine {
         double best = 0;
         for (ContinentContour.Ridge r : contour.ridges) {
             double d = distToRidge(px, py, r.points);
-            double k = 7.0 + r.weight * 2.0;
+            double k = 5.5 + r.weight * 2.0; // 降低衰减 → 山脉更宽更长条
             double h = Math.exp(-d * k / contour.radius);
             if (h > best) best = h;
         }
@@ -171,18 +171,20 @@ public class ContourQueryEngine {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
         // mountain → height-driven
-        if (height > 0.72) return "mountain";
+        if (height > 0.68) return "mountain";
 
         // 独立噪声层
         double hillsNoise  = noise.noise2(px * (2.0 / contour.radius) + 900, py * (2.0 / contour.radius) + 900);
         double plainsNoise = noise.noise2(px * (1.5 / contour.radius) + 800, py * (1.5 / contour.radius) + 800);
 
-        // 丘陵：高度 + 独立噪声两路合并
-        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
-        if (height > 0.22 && hillsNoise > 0.25) return "hills";
-        if (height > 0.14 && hillsNoise > 0.45) return "hills";
+        // 丘陵包裹山脉：高度驱动 + 独立噪声（hills 优先于 plains）
+        if (height > 0.48) return moisture > 0.05 ? "hills" : "plains";
+        // 中等高度：hills 优先占据山脉周边
+        if (height > 0.30) return moisture > -0.2 ? "hills" : "plains";
+        // 低处独立丘陵斑块
+        if (height > 0.14 && hillsNoise > 0.35) return "hills";
 
-        // 平原：独立噪声层
+        // 平原：在非丘陵区域才出现
         if (height > 0.22 && plainsNoise > 0.18) return "plains";
         if (height > 0.14 && plainsNoise > 0.30) return "plains";
 

@@ -132,12 +132,12 @@ public class MapGenerator {
     //  Components
     // ═══════════════════════════════════════════════════════
 
-    /** Ridge height: steep exp(-d * k/radius). k=7-9 → visible but not fat. */
+    /** Ridge height: moderate decay for wider mountain spines. */
     private double computeRidgeHeight(double px, double py) {
         double best = 0;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
-            double k = 7.0 + r.weight * 2.0; // ~8.5-9.0 for main ridges
+            double k = 5.5 + r.weight * 2.0; // 降低衰减 → 山脉更宽更长条
             double h = Math.exp(-d * k / radius);
             if (h > best) best = h;
         }
@@ -158,34 +158,30 @@ public class MapGenerator {
     }
 
     /**
-     * Terrain classification v5 — mixed height + independent noise:
-     *   mountain → height-based (>0.72, near ridges)
-     *   hills → 两路合并：(a) 高度驱动 >0.48 (b) 独立噪声层分散全图
-     *   plains → 独立中低频噪声块状分布
-     *   lowland → 其余低地
+     * Terrain classification v5 — hills wrap mountains, plains independent:
+     *   mountain >0.68 → height-driven (near ridges, wider spines)
+     *   hills >0.48 → wraps mountain bases, priority over plains
+     *   hills >0.30 → extended hill belt around ridges
+     *   plains → independent noise, only where hills don't claim
+     *   lowland → remaining low terrain
      */
     private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        // 山：高度驱动
-        if (height > 0.72) return "mountain";
+        if (height > 0.68) return "mountain";
 
-        // 独立噪声层（中频，全图覆盖）
         double hillsNoise  = noise.noise2(px * (2.0 / radius) + 900, py * (2.0 / radius) + 900);
         double plainsNoise = noise.noise2(px * (1.5 / radius) + 800, py * (1.5 / radius) + 800);
 
-        // 丘陵：高度驱动 + 独立噪声分散（扩大丘陵面积）
-        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
-        // 中等高度：独立噪声也产生丘陵
-        if (height > 0.22 && hillsNoise > 0.25) return "hills";
-        // 低地区域：噪声峰也允许出现丘陵
-        if (height > 0.14 && hillsNoise > 0.45) return "hills";
+        // 丘陵包裹山脉（优先于 plains）
+        if (height > 0.48) return moisture > 0.05 ? "hills" : "plains";
+        if (height > 0.30) return moisture > -0.2 ? "hills" : "plains";
+        if (height > 0.14 && hillsNoise > 0.35) return "hills";
 
-        // 平原：独立噪声层
+        // 平原：仅在丘陵未占据的区域出现
         if (height > 0.22 && plainsNoise > 0.18) return "plains";
         if (height > 0.14 && plainsNoise > 0.30) return "plains";
 
-        // lowland + 内部小斑块
         if (height > 0.12) {
             double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
             if (patch > 0.44) return "plains";
