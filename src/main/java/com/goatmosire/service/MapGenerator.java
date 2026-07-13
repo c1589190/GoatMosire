@@ -158,19 +158,26 @@ public class MapGenerator {
     }
 
     /**
-     * Terrain classification v5 — lowland-dominant:
-     *   > 0.72 → mountain  (收窄，更尖)
-     *   0.45-0.72 → hills  (扩大丘陵区间)
-     *   0.35-0.45 → plains / hills 混合 (轻微调整)
-     *   0.12-0.35 → lowland (不变)
-     *   < 0.12 → swamp
+     * Terrain classification v5 — plains independent from height band:
+     *   mountain / hills → height-based (near ridges)
+     *   plains → 独立中低频噪声，分布在 mid-height 和 lowland 区间
+     *   lowland → 其余低地
      */
     private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
+        // 山和丘陵：高度驱动
         if (height > 0.72) return "mountain";
-        if (height > 0.45) return moisture > 0.08 ? "hills" : "plains";
-        if (height > 0.35) return moisture > 0.05 ? "hills" : "plains";
+        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
+
+        // 独立 plains 噪声层（中低频，大面积块状分布）
+        // freq 1.5/radius → 地图上约 2-3 个完整波长 → 形成大独立平原
+        double plainsNoise = noise.noise2(px * (1.5 / radius) + 800, py * (1.5 / radius) + 800);
+
+        if (height > 0.22 && plainsNoise > 0.18) return "plains";
+        if (height > 0.14 && plainsNoise > 0.30) return "plains";
+
+        // lowland 内部小斑块 plains (保留原有机制)
         if (height > 0.12) {
             double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
             if (patch > 0.44) return "plains";
