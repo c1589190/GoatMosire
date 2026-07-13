@@ -1,0 +1,22 @@
+{
+  "nodeId" : "n0001",
+  "parentId" : "n0000",
+  "turn" : 1,
+  "worldTime" : "第一回合",
+  "status" : "active",
+  "createdAt" : "2026-07-01T14:01:10.056794877Z",
+  "checkpoints" : {
+    "characters" : {
+      "label" : "characters",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "测试角色",
+        "type" : "text",
+        "value" : "第二条日志",
+        "tags" : [ ],
+        "links" : [ ]
+      } ]
+    }
+  },
+  "root" : false
+}

@@ -1,0 +1,61 @@
+{
+  "nodeId" : "n0000",
+  "parentId" : null,
+  "turn" : 0,
+  "worldTime" : "时间原点",
+  "status" : "initial",
+  "createdAt" : "2026-07-01T13:56:29.156761072Z",
+  "checkpoints" : {
+    "narrative" : {
+      "label" : "推文",
+      "type" : "narrative",
+      "elements" : [ ]
+    },
+    "worldview" : {
+      "label" : "世界观",
+      "type" : "worldview",
+      "elements" : [ {
+        "key" : "时代背景",
+        "type" : "text",
+        "value" : "2077年，赛博朋克世界。巨型企业统治一切，义体改造司空见惯。",
+        "tags" : [ "世界观", "赛博朋克" ],
+        "links" : [ ]
+      }, {
+        "key" : "背景",
+        "type" : "text",
+        "value" : "修仙世界，灵气复苏300年",
+        "tags" : [ "世界观" ],
+        "links" : [ ]
+      } ]
+    },
+    "characters" : {
+      "label" : "characters",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "V",
+        "type" : "character",
+        "value" : "V，28岁，夜之城的独狼佣兵。全身60%义体化，擅长黑客与枪械。",
+        "tags" : [ "主角", "佣兵" ],
+        "links" : [ ]
+      }, {
+        "key" : "林风",
+        "type" : "character",
+        "value" : "林风，25岁散修",
+        "tags" : [ "主角" ],
+        "links" : [ ]
+      } ]
+    },
+    "factions" : {
+      "label" : "factions",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "荒坂集团",
+        "type" : "faction",
+        "value" : "荒坂集团，全球最大的义体制造商和安保公司。总部位于东京，夜之城分部由荒坂赖宣掌控。",
+        "tags" : [ "企业", "反派" ],
+        "links" : [ ]
+      } ]
+    }
+  },
+  "root" : true
+}

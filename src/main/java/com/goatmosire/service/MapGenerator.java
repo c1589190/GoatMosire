@@ -158,26 +158,34 @@ public class MapGenerator {
     }
 
     /**
-     * Terrain classification v5 — plains independent from height band:
-     *   mountain / hills → height-based (near ridges)
-     *   plains → 独立中低频噪声，分布在 mid-height 和 lowland 区间
+     * Terrain classification v5 — mixed height + independent noise:
+     *   mountain → height-based (>0.72, near ridges)
+     *   hills → 两路合并：(a) 高度驱动 >0.48 (b) 独立噪声层分散全图
+     *   plains → 独立中低频噪声块状分布
      *   lowland → 其余低地
      */
     private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        // 山和丘陵：高度驱动
+        // 山：高度驱动
         if (height > 0.72) return "mountain";
-        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
 
-        // 独立 plains 噪声层（中低频，大面积块状分布）
-        // freq 1.5/radius → 地图上约 2-3 个完整波长 → 形成大独立平原
+        // 独立噪声层（中频，全图覆盖）
+        double hillsNoise  = noise.noise2(px * (2.0 / radius) + 900, py * (2.0 / radius) + 900);
         double plainsNoise = noise.noise2(px * (1.5 / radius) + 800, py * (1.5 / radius) + 800);
 
+        // 丘陵：高度驱动 + 独立噪声分散（扩大丘陵面积）
+        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
+        // 中等高度：独立噪声也产生丘陵
+        if (height > 0.22 && hillsNoise > 0.25) return "hills";
+        // 低地区域：噪声峰也允许出现丘陵
+        if (height > 0.14 && hillsNoise > 0.45) return "hills";
+
+        // 平原：独立噪声层
         if (height > 0.22 && plainsNoise > 0.18) return "plains";
         if (height > 0.14 && plainsNoise > 0.30) return "plains";
 
-        // lowland 内部小斑块 plains (保留原有机制)
+        // lowland + 内部小斑块
         if (height > 0.12) {
             double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
             if (patch > 0.44) return "plains";

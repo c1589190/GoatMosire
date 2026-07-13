@@ -1,0 +1,237 @@
+{
+  "nodeId" : "n0000",
+  "parentId" : null,
+  "turn" : 0,
+  "worldTime" : "时间原点",
+  "status" : "initial",
+  "createdAt" : "2026-06-28T13:28:53.813233028Z",
+  "checkpoints" : {
+    "worldview" : {
+      "label" : "世界观",
+      "type" : "worldview",
+      "elements" : [ {
+        "key" : "背景设定",
+        "type" : "text",
+        "value" : "东汉末年，天下大乱。黄巾起义后，群雄割据，经官渡、赤壁、夷陵三大战役，最终形成魏蜀吴三国鼎立之势。",
+        "tags" : [ "history", "setting" ],
+        "links" : [ ],
+        "createdAt" : "2026-07-06T09:59:54.145047287Z",
+        "updatedAt" : "2026-07-06T09:59:54.145047287Z"
+      }, {
+        "key" : "测试时间戳",
+        "type" : "text",
+        "value" : "REPLACED — updatedAt 应该变了",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-01T14:23:58.290431835Z",
+        "updatedAt" : "2026-07-01T14:23:59.885797148Z"
+      }, {
+        "key" : "ts",
+        "type" : "text",
+        "value" : "被replace了",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-01T14:25:07.777826605Z",
+        "updatedAt" : "2026-07-01T14:25:08.395880221Z"
+      }, {
+        "key" : "setting_ref",
+        "type" : "route_to_doc",
+        "value" : "@doc:long_setting",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:45:01.509734197Z",
+        "updatedAt" : "2026-07-04T14:45:01.509734197Z"
+      }, {
+        "key" : "long_direct",
+        "type" : "narrative",
+        "value" : "这是一段直接写入的8KB长文本yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:45:01.557229449Z",
+        "updatedAt" : "2026-07-04T14:45:01.557229449Z"
+      }, {
+        "key" : "onestep",
+        "type" : "world_state",
+        "value" : "这是一段测试设定文本",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:51:42.200778900Z",
+        "updatedAt" : "2026-07-04T14:51:42.200778900Z"
+      }, {
+        "key" : "onestep2",
+        "type" : "route_to_doc",
+        "value" : "@doc:onestep2",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:52:24.322018822Z",
+        "updatedAt" : "2026-07-04T14:52:24.322018822Z"
+      }, {
+        "key" : "vrfy_auto",
+        "type" : "route_to_doc",
+        "value" : "@doc:vrfy_auto",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:54:04.905033033Z",
+        "updatedAt" : "2026-07-04T14:54:04.905033033Z"
+      } ]
+    },
+    "narrative" : {
+      "label" : "推文",
+      "type" : "narrative",
+      "elements" : [ ]
+    },
+    "characters" : {
+      "label" : "characters",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "测试角色",
+        "type" : "text",
+        "value" : "这是一条通过@ref读取的测试数据",
+        "tags" : [ "test" ],
+        "links" : [ ],
+        "createdAt" : null,
+        "updatedAt" : null
+      }, {
+        "key" : "测试",
+        "type" : "text",
+        "value" : "通过@ref读取的测试角色",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : null,
+        "updatedAt" : null
+      } ]
+    },
+    "test_cp" : {
+      "label" : "测试检查点",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "cache_test",
+        "type" : "text",
+        "value" : "@cache:edit_20260703_223752_b18ce6ad",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-03T14:38:00.538604778Z",
+        "updatedAt" : "2026-07-03T14:38:00.538604778Z"
+      }, {
+        "key" : "cache_test2",
+        "type" : "text",
+        "value" : "@cache:edit_20260703_223837_de93d948",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-03T14:38:37.575883535Z",
+        "updatedAt" : "2026-07-03T14:38:37.575883535Z"
+      }, {
+        "key" : "cache_test3",
+        "type" : "text",
+        "value" : "\n## 第一章：太师的阴谋",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-03T14:41:10.006198669Z",
+        "updatedAt" : "2026-07-03T14:41:10.006198669Z"
+      }, {
+        "key" : "route_test",
+        "type" : "route_to_doc",
+        "value" : "@doc:char_zhaoyun",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:27:32.832532247Z",
+        "updatedAt" : "2026-07-04T14:27:32.832532247Z"
+      }, {
+        "key" : "route_fix",
+        "type" : "route_to_doc",
+        "value" : "@doc:char_zhaoyun",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:29:19.160628287Z",
+        "updatedAt" : "2026-07-04T14:29:19.160628287Z"
+      }, {
+        "key" : "vrfy_route",
+        "type" : "route_to_doc",
+        "value" : "@doc:char_zhaoyun",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T14:32:25.265197842Z",
+        "updatedAt" : "2026-07-04T14:32:25.265197842Z"
+      } ]
+    },
+    "new_cp" : {
+      "label" : "new_cp",
+      "type" : "text",
+      "elements" : [ {
+        "key" : "test_key",
+        "type" : "text",
+        "value" : "hello",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T15:11:41.593750983Z",
+        "updatedAt" : "2026-07-04T15:11:41.593750983Z"
+      } ]
+    },
+    "new_cp:header_test" : {
+      "label" : "new_cp:header_test",
+      "type" : "route_to_doc",
+      "elements" : [ {
+        "key" : "Header Test",
+        "type" : "route_to_doc",
+        "value" : "@doc:header_test_doc",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T15:11:41.693539717Z",
+        "updatedAt" : "2026-07-04T15:11:41.693539717Z"
+      } ]
+    },
+    "new_cp2" : {
+      "label" : "new_cp2",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "test_k",
+        "type" : "text",
+        "value" : "ok",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T15:12:13.667967408Z",
+        "updatedAt" : "2026-07-04T15:12:13.667967408Z"
+      } ]
+    },
+    "new_cp2:hdr_test" : {
+      "label" : "new_cp2:hdr_test",
+      "type" : "route_to_doc",
+      "elements" : [ {
+        "key" : "Hdr",
+        "type" : "route_to_doc",
+        "value" : "@doc:hdr_doc",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T15:12:13.799438876Z",
+        "updatedAt" : "2026-07-04T15:12:13.799438876Z"
+      } ]
+    },
+    "vrfy_cp" : {
+      "label" : "vrfy_cp",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "vrfy_k",
+        "type" : "text",
+        "value" : "ok",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T15:16:55.612288826Z",
+        "updatedAt" : "2026-07-04T15:16:55.612288826Z"
+      } ]
+    },
+    "vrfy_cp:vrfy_hdr" : {
+      "label" : "vrfy_cp:vrfy_hdr",
+      "type" : "route_to_doc",
+      "elements" : [ {
+        "key" : "Hdr",
+        "type" : "route_to_doc",
+        "value" : "@doc:vrfy_hdr",
+        "tags" : [ ],
+        "links" : [ ],
+        "createdAt" : "2026-07-04T15:16:55.637052304Z",
+        "updatedAt" : "2026-07-04T15:16:55.637052304Z"
+      } ]
+    }
+  },
+  "root" : true
+}

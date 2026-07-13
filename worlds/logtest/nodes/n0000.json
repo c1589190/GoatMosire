@@ -1,0 +1,27 @@
+{
+  "nodeId" : "n0000",
+  "parentId" : null,
+  "turn" : 0,
+  "worldTime" : "时间原点",
+  "status" : "initial",
+  "createdAt" : "2026-07-01T14:01:10.022289800Z",
+  "checkpoints" : {
+    "narrative" : {
+      "label" : "推文",
+      "type" : "narrative",
+      "elements" : [ ]
+    },
+    "worldview" : {
+      "label" : "世界观",
+      "type" : "worldview",
+      "elements" : [ {
+        "key" : "测试",
+        "type" : "text",
+        "value" : "日志测试数据",
+        "tags" : [ ],
+        "links" : [ ]
+      } ]
+    }
+  },
+  "root" : true
+}

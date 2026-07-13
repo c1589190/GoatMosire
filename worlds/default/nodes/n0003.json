@@ -1,0 +1,10 @@
+{
+  "nodeId" : "n0003",
+  "parentId" : "n0002",
+  "turn" : 2,
+  "worldTime" : "1983年3月，改革开放第五年，华北平原初春",
+  "status" : "active",
+  "createdAt" : "2026-06-28T13:41:18.217809183Z",
+  "checkpoints" : { },
+  "root" : false
+}

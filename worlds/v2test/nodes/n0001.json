@@ -1,0 +1,16 @@
+{
+  "nodeId" : "n0001",
+  "parentId" : "n0000",
+  "turn" : 1,
+  "worldTime" : "第一回合",
+  "status" : "active",
+  "createdAt" : "2026-07-03T11:38:44.817567628Z",
+  "checkpoints" : {
+    "factions" : {
+      "label" : "势力",
+      "type" : "misc",
+      "elements" : [ ]
+    }
+  },
+  "root" : false
+}

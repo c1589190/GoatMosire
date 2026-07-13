@@ -1,0 +1,22 @@
+{
+  "nodeId" : "n0001",
+  "parentId" : "n0000",
+  "turn" : 1,
+  "worldTime" : "星历501年秋",
+  "status" : "active",
+  "createdAt" : "2026-07-01T14:03:44.717203061Z",
+  "checkpoints" : {
+    "narrative" : {
+      "label" : "narrative",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "开学",
+        "type" : "text",
+        "value" : "今天是皇家魔法学院开学典礼的日子...",
+        "tags" : [ ],
+        "links" : [ ]
+      } ]
+    }
+  },
+  "root" : false
+}

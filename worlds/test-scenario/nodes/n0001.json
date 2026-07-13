@@ -1,0 +1,33 @@
+{
+  "nodeId" : "n0001",
+  "parentId" : "n0000",
+  "turn" : 1,
+  "worldTime" : "灵气复苏第301年春",
+  "status" : "active",
+  "createdAt" : "2026-07-01T11:05:28.640730979Z",
+  "checkpoints" : {
+    "narrative" : {
+      "label" : "narrative",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "开场场景",
+        "type" : "narrative",
+        "value" : "清晨的青石镇集市人声鼎沸。林风背着一筐草药穿过人群，在转角处撞上一位须发皆白的老者。老者手中的铜镜掉落在地，发出一声清越的鸣响。",
+        "tags" : [ "开场", "集市" ],
+        "links" : [ ]
+      } ]
+    },
+    "characters" : {
+      "label" : "characters",
+      "type" : "misc",
+      "elements" : [ {
+        "key" : "主角",
+        "type" : "character_state",
+        "value" : "林风在集市上意外获得一面神秘铜镜，镜中隐约映出一段上古心法。他的命运从此改变。",
+        "tags" : [ "主角", "事件" ],
+        "links" : [ "characters:主角" ]
+      } ]
+    }
+  },
+  "root" : false
+}

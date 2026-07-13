@@ -170,13 +170,19 @@ public class ContourQueryEngine {
     private String classify(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        // mountain / hills → height-driven
+        // mountain → height-driven
         if (height > 0.72) return "mountain";
-        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
 
-        // 独立 plains 噪声层（中低频，大面积块状）
+        // 独立噪声层
+        double hillsNoise  = noise.noise2(px * (2.0 / contour.radius) + 900, py * (2.0 / contour.radius) + 900);
         double plainsNoise = noise.noise2(px * (1.5 / contour.radius) + 800, py * (1.5 / contour.radius) + 800);
 
+        // 丘陵：高度 + 独立噪声两路合并
+        if (height > 0.48) return moisture > 0.08 ? "hills" : "plains";
+        if (height > 0.22 && hillsNoise > 0.25) return "hills";
+        if (height > 0.14 && hillsNoise > 0.45) return "hills";
+
+        // 平原：独立噪声层
         if (height > 0.22 && plainsNoise > 0.18) return "plains";
         if (height > 0.14 && plainsNoise > 0.30) return "plains";
 
