@@ -185,6 +185,12 @@ let clickHex = null;
 
 function initTags() {
   if (!mapData.tags) mapData.tags = {};
+  // Auto-discover tags from region data (MCP or other tools may have added them)
+  for (const [name, r] of Object.entries(mapData.provinces || {})) {
+    if (r.tag && !mapData.tags[r.tag]) {
+      mapData.tags[r.tag] = {color: r.color || '#888888', description: ''};
+    }
+  }
 }
 
 function saveTags() {
