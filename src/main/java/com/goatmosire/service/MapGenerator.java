@@ -173,18 +173,18 @@ public class MapGenerator {
         double hillsNoise  = noise.noise2(px * (2.0 / radius) + 900, py * (2.0 / radius) + 900);
         double plainsNoise = noise.noise2(px * (1.5 / radius) + 800, py * (1.5 / radius) + 800);
 
-        // 丘陵包裹山脉（优先于 plains）
-        if (height > 0.48) return moisture > 0.05 ? "hills" : "plains";
-        if (height > 0.30) return moisture > -0.2 ? "hills" : "plains";
-        if (height > 0.14 && hillsNoise > 0.35) return "hills";
+        // 丘陵包裹山脉（收紧区间）
+        if (height > 0.48) return moisture > 0.10 ? "hills" : "plains";
+        if (height > 0.36) return moisture > 0.0 ? "hills" : "plains";
+        if (height > 0.14 && hillsNoise > 0.50) return "hills";
 
-        // 平原：仅在丘陵未占据的区域出现
-        if (height > 0.22 && plainsNoise > 0.18) return "plains";
-        if (height > 0.14 && plainsNoise > 0.30) return "plains";
+        // 平原：提高阈值 → 更少更清晰
+        if (height > 0.22 && plainsNoise > 0.28) return "plains";
+        if (height > 0.14 && plainsNoise > 0.42) return "plains";
 
         if (height > 0.12) {
             double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
-            if (patch > 0.44) return "plains";
+            if (patch > 0.50) return "plains";
             return "lowland";
         }
         return moisture > 0.15 ? "swamp" : "lowland";

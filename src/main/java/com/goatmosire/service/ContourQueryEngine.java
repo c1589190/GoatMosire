@@ -177,21 +177,20 @@ public class ContourQueryEngine {
         double hillsNoise  = noise.noise2(px * (2.0 / contour.radius) + 900, py * (2.0 / contour.radius) + 900);
         double plainsNoise = noise.noise2(px * (1.5 / contour.radius) + 800, py * (1.5 / contour.radius) + 800);
 
-        // 丘陵包裹山脉：高度驱动 + 独立噪声（hills 优先于 plains）
-        if (height > 0.48) return moisture > 0.05 ? "hills" : "plains";
-        // 中等高度：hills 优先占据山脉周边
-        if (height > 0.30) return moisture > -0.2 ? "hills" : "plains";
-        // 低处独立丘陵斑块
-        if (height > 0.14 && hillsNoise > 0.35) return "hills";
+        // 丘陵包裹山脉：收紧区间减少密度
+        if (height > 0.48) return moisture > 0.10 ? "hills" : "plains";
+        if (height > 0.36) return moisture > 0.0 ? "hills" : "plains";
+        // 低处少量独立丘陵
+        if (height > 0.14 && hillsNoise > 0.50) return "hills";
 
-        // 平原：在非丘陵区域才出现
-        if (height > 0.22 && plainsNoise > 0.18) return "plains";
-        if (height > 0.14 && plainsNoise > 0.30) return "plains";
+        // 平原：提高阈值 → 更少更清晰的斑块
+        if (height > 0.22 && plainsNoise > 0.28) return "plains";
+        if (height > 0.14 && plainsNoise > 0.42) return "plains";
 
-        // lowland + 内部小斑块
+        // lowland
         if (height > 0.12) {
             double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
-            if (patch > 0.44) return "plains";
+            if (patch > 0.50) return "plains";
             return "lowland";
         }
         return moisture > 0.15 ? "swamp" : "lowland";
