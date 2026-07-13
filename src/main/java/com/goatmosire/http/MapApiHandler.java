@@ -166,18 +166,20 @@ public class MapApiHandler implements HttpHandler {
     }
 
     // ── POST /api/map/{worldId}/generate ─────────────────
-    // MapGenerator v5 — subtropical local continent, directional ridges + lowland-dominant terrain
+    // NOTE: This uses the @Deprecated MapGenerator for backward compat.
+    // New worlds should start with empty canvas and add TerrainBlocks via editor.
 
+    @SuppressWarnings("deprecation")
     private void handleGenerate(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
         String worldId = sub.substring(1, sub.indexOf("/generate"));
         long seed = Long.parseLong(params.getOrDefault("seed", String.valueOf(System.currentTimeMillis())));
         int radius = Integer.parseInt(params.getOrDefault("radius", "80"));
-        int mainCount = Integer.parseInt(params.getOrDefault("ridges", "2"));
-        int fragmentCount = Integer.parseInt(params.getOrDefault("fragments", "5"));
-        double landRatio = Double.parseDouble(params.getOrDefault("land", "0.60"));
-        double coastRoughness = Double.parseDouble(params.getOrDefault("roughness", "0.5"));
+        int mainCount = Integer.parseInt(params.getOrDefault("ridges", "4"));
+        int fragmentCount = Integer.parseInt(params.getOrDefault("fragments", "8"));
+        double landRatio = Double.parseDouble(params.getOrDefault("land", "0.35"));
+        double coastRoughness = Double.parseDouble(params.getOrDefault("roughness", "0.6"));
 
-        // Generate continent v5 — subtropical local continent
+        // Generate continent (deprecated path — use TerrainCanvas.addBlock for new worlds)
         var gen = new MapGenerator(seed, radius);
         gen.placeRidges(mainCount, fragmentCount);
         ContinentContour contour = gen.generateContour(landRatio);
