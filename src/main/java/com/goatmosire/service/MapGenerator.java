@@ -4,14 +4,10 @@ import com.gsim.map.MapData;
 import java.util.*;
 
 /**
- * MapGenerator v5.1 — Subtropical Local Continent (fixed).
+ * MapGenerator v5.3 — Subtropical Local Continent.
  *
- * <p>Directional orogenic mountain ranges, lowland-dominant terrain with
- * scattered plains patches, visible coastlines.
- *
- * <p>Key fixes vs v5.0: ridge weight raised to pierce noise floor,
- * shelf bias reduced, baseSeaLevel restored to visible range,
- * classification intervals tightened.
+ * <p>Directional orogenic ridges on top of a low-frequency continent mask.
+ * Three-layer height: continent base → ridges → terrain texture.
  */
 public class MapGenerator {
 
@@ -141,7 +137,7 @@ public class MapGenerator {
         Map<String, MapData.HexCell> hexes = new LinkedHashMap<>();
 
         // 海平面独立于高度计算：landRatio 高 → 海平面降低 → 更多陆地
-        double seaLevel = 0.38 - landRatio * 0.30;  // landRatio 0.6 → seaLevel=0.20
+        double seaLevel = 0.42 - landRatio * 0.32;  // landRatio 0.6 → seaLevel≈0.23
 
         for (int q = -radius; q <= radius; q++) {
             for (int r = -radius; r <= radius; r++) {
@@ -179,39 +175,47 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Height Computation v5.2 — Sea-level-separated
+    //  Height Computation v5.3 — Continent Base + Ridges
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Raw landscape height (0–1 range). Does NOT include sea-level subtraction.
-     * Ridge contributes 0.65, shelf 0.40 base, terrain 0.30 relief.
-     * Ridge decay k lowered to 7–10 so mountains have visible width.
+     * Three-layer height:
+     *   1. continent mask — ultra-low-freq, strong positive bias → large landmass
+     *   2. ridges — orogenic spines on top of the continent
+     *   3. terrain + detail — mid/high-freq relief for texture
+     * Then compare against seaLevel; normalise the remainder for classification.
      */
     private double computeHeight(double px, double py) {
         double ridgeH    = computeRidgeHeight(px, py);
-        double shelfFreq = 2.0 / radius, terrainFreq = 5.0 / radius, detailFreq = 12.0 / radius;
+        double contFreq  = 1.2 / radius, shelfFreq = 2.5 / radius;
+        double terrFreq  = 5.5 / radius, detailFreq = 13.0 / radius;
 
-        // 大陆架基座：低频噪声提供稳定的陆地抬升
-        double shelf   = noise.noise2(px * shelfFreq + 100, py * shelfFreq + 100) * 0.50 + 0.35;
+        // ① 低频大陆形状 — 最重要的基础层，强正偏置
+        double continent = noise.noise2(px * contFreq, py * contFreq);
+        continent = Math.max(0, continent * 0.60 + 0.45);    // ~0.15–0.81 范围，大部分 >0.3
 
-        // 中频地形起伏
-        double terrain = noise.noise2(px * terrainFreq + 200, py * terrainFreq + 200) * 0.30;
+        // ② 大陆架 — 补充低频波动，让海岸线不完全圆
+        double shelf = noise.noise2(px * shelfFreq + 100, py * shelfFreq + 100) * 0.35 + 0.10;
 
-        // 高频细节
-        double detail  = noise.noise2(px * detailFreq + 400, py * detailFreq + 400) * 0.08;
+        // ③ 中频地形起伏
+        double terrain = noise.noise2(px * terrFreq + 200, py * terrFreq + 200) * 0.20;
+
+        // ④ 高频细节
+        double detail  = noise.noise2(px * detailFreq + 400, py * detailFreq + 400) * 0.06;
 
         double valley  = computeValleyPenalty(px, py);
 
-        // ridge 0.65: 山脉要强但不过度   shelf 0.40: 大陆基座   terrain 0.30: 中频起伏
-        return ridgeH * 0.65 + shelf * 0.40 + terrain * 0.30 + detail * 0.10 - valley * 0.12;
+        // 大陆基座 0.55 占主导  脊线 0.75 确保刺破  其余提供纹理
+        return continent * 0.55 + ridgeH * 0.75 + shelf * 0.25
+             + terrain * 0.20 + detail * 0.08 - valley * 0.10;
     }
 
-    /** Ridge attenuation — k=7~10 for visible thickness (not needle-thin). */
+    /** Ridge attenuation — k=8~11: visible but not fat. */
     private double computeRidgeHeight(double px, double py) {
         double best = 0;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
-            double k = 7.0 + r.weight * 3.5;   // main ~9.8, secondary ~8.2, fragment ~7.5
+            double k = 8.0 + r.weight * 3.5;   // main ~11, secondary ~9, fragment ~8
             double h = Math.exp(-d * k / radius);
             if (h > best) best = h;
         }
