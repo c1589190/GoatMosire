@@ -14,7 +14,7 @@ public record GoatMosireConfig(
     public static GoatMosireConfig load() {
         String worldsDir = System.getProperty("goatmosire.worldsDir",
             System.getenv().getOrDefault("GOATMOSIRE_WORLDS_DIR",
-                System.getProperty("user.home") + "/GSimulator/worlds"));
+                "worlds"));
         int port = Integer.parseInt(System.getProperty("goatmosire.port",
             System.getenv().getOrDefault("GOATMOSIRE_PORT", "8711")));
         boolean httpMode = !Boolean.parseBoolean(System.getProperty("goatmosire.mcpOnly", "false"));

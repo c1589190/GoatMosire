@@ -86,7 +86,7 @@ public class GoatMosireApp {
                           --help, -h      Show this help
                         
                         System properties:
-                          -Dgoatmosire.worldsDir=<path>   GSim worlds directory (default: ~/GSimulator/worlds)
+                          -Dgoatmosire.worldsDir=<path>   GSim worlds directory (default: ./worlds)
                           -Dgoatmosire.port=<port>        HTTP port (default: 8711)
                         """);
                     System.exit(0);

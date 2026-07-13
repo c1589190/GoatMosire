@@ -29,13 +29,17 @@ public class MapService {
         }
     };
     private final ConcurrentHashMap<String, TerrainCanvas> canvases = new ConcurrentHashMap<>();
+    private final NodeSyncService nodeSyncService;
 
     public MapService(Path worldsDir) {
         this.worldsDir = worldsDir;
+        this.nodeSyncService = new NodeSyncService(worldsDir);
         if (!Files.isDirectory(worldsDir)) {
             log.warn("Worlds directory does not exist: {}", worldsDir);
         }
     }
+
+    public Path getWorldsDir() { return worldsDir; }
 
     // ── Query ────────────────────────────────────────────
 
@@ -363,6 +367,15 @@ public class MapService {
     }
 
     // ── Cache ─────────────────────────────────────────────
+
+    // ── GSim Node Sync ────────────────────────────────────
+
+    /** Sync map data (regions, described hexes, cities) into the GSim node's "map" checkpoint. */
+    public void syncToGSimNode(String worldId, String nodeId) {
+        MapData map = resolve(worldId, nodeId);
+        if (map == null || map.hexes().isEmpty()) return;
+        nodeSyncService.sync(worldId, nodeId, map);
+    }
 
     public void evict(String worldId, String nodeId) {
         String key = cacheKey(worldId, nodeId);

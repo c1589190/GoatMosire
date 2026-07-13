@@ -193,6 +193,7 @@ public class MapApiHandler implements HttpHandler {
         populateTerrainBlocks(worldId, contour, radius);
         mapService.evictCanvas(worldId);
 
+        try { mapService.syncToGSimNode(worldId, "n0000"); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
         sendJson(exchange, 200, Map.of(
             "ok", true, "worldId", worldId, "nodeId", "n0000",
             "seed", seed, "hexCount", map.hexes().size(),
@@ -316,6 +317,7 @@ public class MapApiHandler implements HttpHandler {
         MapData data = MAPPER.readValue(body, MapData.class);
         mapService.saveFull(worldId, nodeId, data);
         log.info("Created map for world={} node={}", worldId, nodeId);
+        try { mapService.syncToGSimNode(worldId, nodeId); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
         sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
     }
 
@@ -352,6 +354,7 @@ public class MapApiHandler implements HttpHandler {
                         worldId, nodeId, diff.changed().size(), diff.removed().size());
                 }
             }
+            try { mapService.syncToGSimNode(worldId, nodeId); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
             sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
         } catch (Exception e) {
             sendError(exchange, 400, "Invalid map data: " + e.getMessage());
@@ -431,8 +434,7 @@ public class MapApiHandler implements HttpHandler {
 
     private String readActiveNodeId(String worldId) {
         try {
-            var file = java.nio.file.Path.of(
-                System.getProperty("user.home"), "GSimulator/worlds", worldId, "active.json");
+            var file = mapService.getWorldsDir().resolve(worldId).resolve("active.json");
             if (!java.nio.file.Files.exists(file)) return null;
             var node = MAPPER.readTree(file.toFile());
             return node.has("nodeId") ? node.get("nodeId").asText() : null;
@@ -447,8 +449,7 @@ public class MapApiHandler implements HttpHandler {
 
     private String readParentNodeId(String worldId, String nodeId) {
         try {
-            var file = java.nio.file.Path.of(
-                System.getProperty("user.home"), "GSimulator/worlds", worldId, "nodes", nodeId + ".json");
+            var file = mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
             if (!java.nio.file.Files.exists(file)) return null;
             var node = MAPPER.readTree(file.toFile());
             if (node.has("parentId") && !node.get("parentId").isNull()) {

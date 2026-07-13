@@ -18,8 +18,15 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>local-lib</id>
+            <url>file://${project.basedir}/lib</url>
+        </repository>
+    </repositories>
+
     <dependencies>
-        <!-- GSim Core (map data types, storage, resolution) -->
+        <!-- GSim Core (map data types, storage, resolution) — bundled in lib/ -->
         <dependency>
             <groupId>com.gsim</groupId>
             <artifactId>gsim-core</artifactId>

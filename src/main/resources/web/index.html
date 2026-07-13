@@ -35,6 +35,44 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
 .toolbar .spacer { flex: 1; }
 .toolbar .status { font-size: 11px; color: var(--dim); white-space: nowrap; }
 
+/* Sidebar panels */
+.left-panel, .right-panel {
+  width: 240px; min-width: 200px; background: var(--panel);
+  border-color: var(--border); overflow-y: auto; font-size: 12px;
+  padding: 12px; display: none;
+}
+.left-panel { border-right: 1px solid var(--border); }
+.right-panel { border-left: 1px solid var(--border); }
+.left-panel h4, .right-panel h4 {
+  color: var(--accent); margin: 0 0 8px; font-size: 13px;
+}
+.left-panel .field, .right-panel .field { margin-bottom: 8px; }
+.left-panel .field label, .right-panel .field label {
+  color: var(--dim); font-size: 10px; display: block; margin-bottom: 2px;
+}
+.left-panel .field .val, .right-panel .field .val {
+  color: var(--text); font-size: 11px;
+}
+.left-panel textarea, .right-panel textarea, .left-panel input, .right-panel input {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 6px; font-size: 11px; resize: vertical;
+}
+.left-panel button, .right-panel button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  padding: 3px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
+}
+.left-panel button:hover, .right-panel button:hover { background: var(--accent); color: #fff; }
+.adjacent-item {
+  display: inline-block; padding: 2px 6px; margin: 1px 2px; background: var(--bg);
+  border-radius: 4px; cursor: pointer; font-size: 10px;
+}
+.adjacent-item:hover { background: var(--accent); color: #fff; }
+.terrain-chip {
+  display: inline-block; padding: 1px 6px; margin: 1px 2px;
+  border-radius: 4px; font-size: 10px; color: #fff;
+}
+
 /* Canvas */
 .canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #0f0f23; }
 #mapCanvas { display: block; position: absolute; top: 0; left: 0; }
@@ -80,13 +118,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
 </div>
 
 <div style="display:flex;flex:1;overflow:hidden;">
+<div class="left-panel" id="leftPanel">
+  <h4 id="leftTitle">📍 地块详情</h4>
+  <div id="leftBody"><div style="color:var(--dim);font-size:11px">点击地图上的地块查看详情</div></div>
+</div>
 <div class="canvas-wrap" id="canvasWrap" style="flex:1;">
   <canvas id="mapCanvas"></canvas>
   <div class="tooltip" id="tooltip"></div>
 </div>
-<div id="infoPanel" style="width:220px;background:var(--panel);border-left:1px solid var(--border);padding:12px;overflow-y:auto;display:none;font-size:12px;">
-  <h4 id="infoTitle" style="color:var(--accent);margin:0 0 8px;"></h4>
-  <div id="infoBody"></div>
+<div class="right-panel" id="rightPanel">
+  <h4 id="rightTitle">📐 区域管理</h4>
+  <div id="rightBody"></div>
 </div>
 </div>
 
@@ -111,6 +153,7 @@ let activeTerrain = 'plains';          // currently selected terrain
 let tool = 'pen';
 let selectedProvince = null;
 let activeTag = null;  // currently selected tag for region creation
+let clickHex = null;
 
 // ── Tag Manager ────────────────────────────────────────
 
@@ -171,17 +214,18 @@ function selectTag(name) {
 
 function showTagList() {
   initTags();
-  const body = document.getElementById('infoBody');
-  const title = document.getElementById('infoTitle');
+  const body = document.getElementById('rightBody');
+  const title = document.getElementById('rightTitle');
   const tags = Object.entries(mapData.tags);
-  
-  let html = '<div style="margin-bottom:4px"><button onclick="createTag()" style="font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建标签</button></div>';
-  
+  const allProvs = Object.entries(mapData.provinces||{});
+
+  let html = '<div style="margin-bottom:6px"><button onclick="createTag()" style="font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建标签</button></div>';
+
   if (tags.length === 0) {
     html += '<div style="color:var(--dim);font-size:11px;padding:4px">暂无标签，点击上方新建</div>';
   } else {
     html += tags.map(([name, t]) => {
-      const regions = Object.entries(mapData.provinces||{}).filter(([rn,r]) => r.tag === name);
+      const regions = allProvs.filter(([rn,r]) => r.tag === name);
       const active = activeTag === name ? 'border:2px solid var(--accent);' : '';
       return `<div style="margin-bottom:4px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${active}" onclick="selectTag('${name}')">
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -197,9 +241,24 @@ function showTagList() {
       </div>`;
     }).join('');
   }
+
+  // Show untagged regions
+  const untagged = allProvs.filter(([rn,r]) => !r.tag);
+  if (untagged.length > 0) {
+    html += '<div style="margin-top:8px;padding-top:4px;border-top:1px solid var(--border)">';
+    html += '<div style="font-size:10px;color:var(--dim);margin-bottom:4px">未分类区域</div>';
+    html += untagged.map(([rn,r]) =>
+      `<div style="margin-bottom:3px;padding:4px 6px;background:var(--bg);border-radius:4px;cursor:pointer;${selectedProvince===rn?'border:1px solid var(--accent);':''}" onclick="selectProvince('${rn}')">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${r.color||'#888'};margin-right:6px"></span>
+        <b style="font-size:11px">${rn}</b> <span style="color:var(--dim);font-size:10px">${r.hexes.length}格</span>
+      </div>`
+    ).join('');
+    html += '</div>';
+  }
+
   title.textContent = `📐 标签管理`;
   body.innerHTML = html;
-  document.getElementById('infoPanel').style.display = 'block';
+  document.getElementById('rightPanel').style.display = 'block';
 }
 let provinceLasso = [];
 let zoom = 1;
@@ -243,11 +302,26 @@ function hexCorners(cx, cy, size) {
   return pts;
 }
 
+// ── Point-in-polygon (ray-casting) ───────────────────────
+function pointInPolygon(px, py, polygon) {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 // ── Paint Tools ─────────────────────────────────────────
 
 function applyTool(q, r) {
   const key = q + '_' + r;
   if (!mapData.hexes) mapData.hexes = {};
+
   if (tool === 'eraser') {
     delete mapData.hexes[key];
   } else if (tool === 'fill') {
@@ -396,11 +470,11 @@ function render() {
     const tl = pixelToHex(vpLeft, vpTop);
     const br = pixelToHex(vpRight, vpBottom);
     for (let q = tl.q - 1; q <= br.q + 1; q++) {
-      for (let r = Math.max(tl.r, br.r) - 1; r <= Math.max(tl.r, br.r) + 1; r++) {
+      for (let r = Math.min(tl.r, br.r) - 1; r <= Math.max(tl.r, br.r) + 1; r++) {
         const key = q + '_' + r;
         if (mapData.hexes && mapData.hexes[key]) continue; // already drawn
         const {x: hx, y: hy} = hexToPixel(q, r);
-        if (hx < vpLeft || hx > vpRight || hy < vpTop*0.866 || hy > vpBottom*0.866) continue;
+        if (hx < vpLeft || hx > vpRight || hy < vpTop || hy > vpBottom) continue;
         for (let i = blocks.length - 1; i >= 0; i--) {
           if (pointInPolygon(hx, hy, blocks[i].boundary)) {
             const color = getTerrainColor(blocks[i].terrain);
@@ -570,8 +644,14 @@ function setTool(t) {
   riverStart = null;
   provinceLasso = [];
   lassoPts = [];
-  if (t === 'province') showTagList();
-  else { const ip = document.getElementById('infoPanel'); if (ip) ip.style.display = 'none'; }
+  if (t === 'province') {
+    showTagList();
+    document.getElementById('rightPanel').style.display = 'block';
+  } else {
+    document.getElementById('rightPanel').style.display = 'none';
+    document.getElementById('leftPanel').style.display = 'none';
+    selectedProvince = null;
+  }
 }
 
 // ── River constants ─────────────────────────────────────
@@ -693,62 +773,132 @@ function createEmptyRegion() {
   if (!name) return;
   const color = prompt('区域颜色:', defColor);
   if (!mapData.provinces) mapData.provinces = {};
-  mapData.provinces[name] = {hexes:[], color:color||'#ff0000', tag:activeTag||'', description:''};
+  const desc = prompt('区域描述 (可选):', '');
+  mapData.provinces[name] = {hexes:[], color:color||'#ff0000', tag:activeTag||'', description:desc||''};
   selectedProvince = name;
-  showTagList(); render();
+  showRegionDetail(name); showTagList(); render();
 }
 
 
 // ── Province Tool ──
 
-function showProvinceList() {
-  const panel = document.getElementById('infoPanel');
-  const title = document.getElementById('infoTitle');
-  const body = document.getElementById('infoBody');
+function showRegionList() {
+  const body = document.getElementById('rightBody');
+  const title = document.getElementById('rightTitle');
   const provs = mapData?.provinces || {};
   const names = Object.keys(provs);
-  const mapTotal = Object.keys(mapData?.hexes || {}).length;
 
-  // Collect unique tags
   const tags = [...new Set(names.map(n => provs[n].tag).filter(Boolean))].sort();
 
   let html = `<div style="margin-bottom:6px;font-size:11px">
-    标签: <select onchange="filterByTag(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:11px;padding:1px 4px">
-      <option value="">全部区域</option>
+    标签过滤: <select onchange="filterByTag(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:11px;padding:1px 4px;width:100px">
+      <option value="">全部</option>
       ${tags.map(t => `<option value="${t}" ${activeTag===t?'selected':''}>${t}</option>`).join('')}
     </select>
     <button onclick="createEmptyRegion()" style="float:right;font-size:11px;background:var(--accent);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">+ 新建</button>
+    <a href="#" onclick="showTagList();return false" style="font-size:10px;color:var(--dim);margin-right:6px">标签管理</a>
   </div>`;
 
   title.textContent = `📐 区域 (${names.length})`;
-  if (names.length === 0) {
-    html += '<div style="color:var(--dim);font-size:11px">📐右键拖圈创建区域，或➕新建</div>';
+  const filtered = activeTag ? names.filter(n => provs[n].tag === activeTag) : names;
+  if (filtered.length === 0) {
+    html += '<div style="color:var(--dim);font-size:11px;padding:4px">📐右键拖圈创建区域，或➕新建</div>';
   } else {
-    const filtered = activeTag ? names.filter(n => provs[n].tag === activeTag) : names;
     html += filtered.map(name => {
       const p = provs[name];
-      const sel = selectedProvince === name ? 'border:2px solid var(--accent);' : '';
-      const ratio = (p.hexes||[]).length / Math.max(mapTotal, 1);
-      return `<div style="margin-bottom:6px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${sel}"
+      const sel = selectedProvince === name ? 'border:1px solid var(--accent);' : '';
+      return `<div style="margin-bottom:4px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${sel}"
         onclick="selectProvince('${name}')">
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color||'#888'};margin-right:6px"></span>
-        <b>${name}</b> <span style="color:var(--dim);font-size:10px">${(p.hexes||[]).length}格</span> ${p.tag ? '<span style="background:#333;color:#aaa;font-size:9px;padding:1px 4px;border-radius:2px">'+p.tag+'</span>' : ''}
-        <button onclick="event.stopPropagation();deleteProvince('${name}')" style="float:right;background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="删除">✕</button>
-        <div style="margin-top:2px;font-size:10px;color:var(--dim)">
-          tag: <input value="${p.tag||''}" onchange="updateProvTag('${name}',this.value);showProvinceList();" style="width:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;font-size:10px;padding:1px 3px">
-          颜色: <input type="color" value="${p.color||'#ff0000'}" onchange="updateProvColor('${name}',this.value)" style="width:20px;height:16px;border:none;cursor:pointer;vertical-align:middle">
-        </div>
+        <b>${name}</b> <span style="color:var(--dim);font-size:10px">${(p.hexes||[]).length}格</span>
+        ${p.tag ? '<span style="background:#333;color:#aaa;font-size:9px;padding:1px 4px;border-radius:2px">'+p.tag+'</span>' : ''}
       </div>`;
     }).join('');
   }
   body.innerHTML = html;
-  panel.style.display = 'block';
+  document.getElementById('rightPanel').style.display = 'block';
+}
+
+function showRegionDetail(name) {
+  const body = document.getElementById('leftBody');
+  const title = document.getElementById('leftTitle');
+  const p = mapData?.provinces?.[name];
+  if (!p) return;
+
+  // Compute details
+  const keys = p.hexes || [];
+  const hexCount = keys.length;
+  const mapTotal = Object.keys(mapData?.hexes || {}).length;
+
+  // Center
+  let sq = 0, sr = 0;
+  for (const k of keys) { const [q,r] = k.split('_').map(Number); sq += q; sr += r; }
+  const cq = Math.round(sq / Math.max(1, hexCount));
+  const cr = Math.round(sr / Math.max(1, hexCount));
+
+  // Terrain composition
+  const comp = {};
+  for (const k of keys) {
+    const cell = mapData.hexes?.[k];
+    if (cell) comp[cell.terrain] = (comp[cell.terrain]||0) + 1;
+  }
+
+  // Adjacency
+  const ownSet = new Set(keys);
+  const adj = [];
+  for (const [oname, op] of Object.entries(mapData.provinces || {})) {
+    if (oname === name) continue;
+    let edges = 0;
+    for (const hk of keys) {
+      const [q,r] = hk.split('_').map(Number);
+      for (const [dq,dr] of DIR_VECTORS) {
+        if ((op.hexes||[]).includes((q+dq)+'_'+(r+dr))) edges++;
+      }
+    }
+    if (edges > 0) adj.push({name: oname, sharedEdges: edges, color: op.color, tag: op.tag});
+  }
+  adj.sort((a,b) => b.sharedEdges - a.sharedEdges);
+
+  title.textContent = `📐 区域`;
+  document.getElementById('leftPanel').style.display = 'block';
+
+  body.innerHTML = `<div class="field"><label>名称</label>
+      <input value="${name}" onchange="renameProvince('${name}',this.value)" style="font-size:13px;font-weight:600">
+    </div>
+    <div class="field">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${p.color||'#888'};margin-right:4px;vertical-align:middle"></span>
+      <input value="${p.tag||''}" onchange="updateProvTag('${name}',this.value);showRegionDetail('${name}')" placeholder="tag" style="width:80px;font-size:11px">
+      <span style="color:var(--dim);font-size:10px;margin-left:4px">${hexCount}格 / ${mapTotal}总</span>
+    </div>
+    <div class="field"><label>颜色</label>
+      <input type="color" value="${p.color||'#ff0000'}" onchange="updateProvColor('${name}',this.value)" style="width:30px;height:20px">
+    </div>
+    <div class="field"><label>中心点</label>
+      <span class="val">(${cq}, ${cr})</span>
+    </div>
+    <div class="field"><label>描述</label>
+      <textarea rows="2" onchange="updateProvDesc('${name}',this.value)">${p.description||''}</textarea>
+    </div>
+    ${Object.keys(comp).length > 0 ? `<div class="field"><label>地形构成</label>
+      <div>${Object.entries(comp).map(([t,c]) =>
+        `<span class="terrain-chip" style="background:${getTerrainColor(t)}">${t} ×${c}</span>`
+      ).join(' ')}</div>
+    </div>` : ''}
+    ${adj.length > 0 ? `<div class="field"><label>邻接区域 (${adj.length})</label>
+      <div>${adj.map(a =>
+        `<span class="adjacent-item" onclick="selectProvince('${a.name}')" title="${a.name} tag:${a.tag||'无'} | 共享边:${a.sharedEdges}">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:1px;background:${a.color};margin-right:2px"></span>${a.name} ${a.sharedEdges}
+        </span>`
+      ).join('')}</div>
+    </div>` : '<div class="field" style="color:var(--dim)">无邻接区域</div>'}
+    <button onclick="deleteProvince('${name}')" style="color:#e74c3c;border-color:#e74c3c;margin-top:4px">🗑 删除</button>
+    <button onclick="document.getElementById('leftPanel').style.display='none';showTagList()" style="margin-top:4px;margin-left:4px">← 关闭详情</button>`;
 }
 
 function filterByTag(tag) {
   activeTag = tag || null;
   if (activeTag) selectedProvince = null;
-  showProvinceList();
+  showTagList();
   render();
 }
 
@@ -756,7 +906,8 @@ function selectProvince(name) {
   activeTag = null;
   selectedProvince = name;
   canvas._boundaryCache = null;
-  showTagList();
+  setTool('province');       // shows showTagList in right panel
+  showRegionDetail(name);    // left panel: detail
   render();
 }
 
@@ -938,7 +1089,7 @@ canvas.addEventListener('mouseup', e => {
   } else if (clickHex && tool === 'province') {
     addProvincePoint(clickHex.q, clickHex.r);
   } else if (clickHex && mouseDown) {
-    showHexInfo(clickHex.q, clickHex.r);
+    showHexDetail(clickHex.q, clickHex.r);
   }
   mouseDown = false; panStart = null; clickHex = null;
 });
@@ -962,43 +1113,46 @@ function getHexAtEvent(e) {
 }
 
 // ── Info Panel ──────────────────────────────────────────
-function showHexInfo(q, r) {
+function showHexDetail(q, r) {
   const key = `${q}_${r}`;
   const cell = (mapData?.hexes || {})[key];
-  const panel = document.getElementById('infoPanel');
-  const title = document.getElementById('infoTitle');
-  const body = document.getElementById('infoBody');
 
-  if (!cell) { panel.style.display = 'none'; return; }
+  const body = document.getElementById('leftBody');
+  const title = document.getElementById('leftTitle');
 
-  // Find province this hex belongs to
-  let provName = '', provTag = '', provDesc = '';
+  if (!cell) {
+    document.getElementById('leftPanel').style.display = 'none';
+    return;
+  }
+
+  // Find province membership
+  let provName = '';
   for (const [pname, prov] of Object.entries(mapData.provinces || {})) {
-    if (prov.hexes?.includes(key)) { provName = pname; provTag = prov.tag || ''; provDesc = prov.description || ''; break; }
+    if (prov.hexes?.includes(key)) { provName = pname; break; }
   }
 
   const tt = terrainTypes[cell.terrain] || {};
-  title.textContent = `(${q}, ${r}) — ${cell.terrain}`;
+  title.textContent = `📍 (${q}, ${r})`;
+  document.getElementById('leftPanel').style.display = 'block';
+
   body.innerHTML = `
-    <div style="margin-bottom:8px">
-      <label style="color:var(--dim);font-size:10px">描述</label>
-      <textarea id="hexDesc" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;resize:vertical;min-height:40px"
-        onchange="updateHexDesc(${q},${r},this.value)">${cell.description||''}</textarea>
+    <div class="field"><label>地形</label>
+      <span class="val"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${cell.color||getTerrainColor(cell.terrain)};margin-right:4px;vertical-align:middle"></span>${cell.terrain}</span>
     </div>
-    ${provName ? `
-    <div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:4px">
-      <div style="font-weight:700;color:var(--accent);margin-bottom:4px">${provName}</div>
-      <label style="color:var(--dim);font-size:10px">GSim Tag</label>
-      <input id="provTag" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:11px"
-        value="${provTag}" onchange="updateProvTag('${provName}',this.value)">
-      <label style="color:var(--dim);font-size:10px;margin-top:4px;display:block">省份描述</label>
-      <textarea id="provDesc" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px;resize:vertical;min-height:30px"
-        onchange="updateProvDesc('${provName}',this.value)">${provDesc}</textarea>
-    </div>` : ''}
-    <div style="font-size:10px;color:var(--dim)">
-      🍖${tt.food||0} 💰${tt.gold||0} 🪨${tt.stone||0} 👣${tt.moveCost||0}
+    <div class="field"><label>产出</label>
+      <span class="val">🍖${tt.food||0} 💰${tt.gold||0} 🪨${tt.stone||0} 👣${tt.moveCost||0}</span>
+    </div>
+    ${cell.symbol ? `<div class="field"><label>符号</label><span class="val">${cell.symbol}</span></div>` : ''}
+    ${cell.riverMask > 0 ? `<div class="field"><label>河流</label><span class="val">掩码: ${cell.riverMask}</span></div>` : ''}
+    <div class="field"><label>描述</label>
+      <textarea rows="2" onchange="updateHexDesc(${q},${r},this.value)">${cell.description||''}</textarea>
+    </div>
+    ${provName ? `<div class="field"><label>所属区域</label>
+      <span class="val" style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="selectProvince('${provName}')">${provName}</span>
+    </div>` : '<div class="field" style="color:var(--dim)">不属于任何区域</div>'}
+    <div style="margin-top:12px">
+      <button onclick="document.getElementById('leftPanel').style.display='none'" style="font-size:10px">关闭</button>
     </div>`;
-  panel.style.display = 'block';
 }
 
 function updateHexDesc(q, r, val) {
@@ -1013,6 +1167,22 @@ function updateProvTag(name, val) {
 
 function updateProvDesc(name, val) {
   if (mapData.provinces[name]) mapData.provinces[name].description = val;
+}
+
+function renameProvince(oldName, newName) {
+  if (!newName || newName === oldName || !mapData.provinces[oldName]) return;
+  if (mapData.provinces[newName]) { showToast('名称已存在'); return; }
+  mapData.provinces[newName] = mapData.provinces[oldName];
+  delete mapData.provinces[oldName];
+  if (selectedProvince === oldName) selectedProvince = newName;
+  showRegionDetail(newName);
+  showTagList();
+  render();
+}
+
+function updateProvColor(name, val) {
+  if (mapData.provinces[name]) mapData.provinces[name].color = val;
+  render();
 }
 
 // ── Province Lasso ──────────────────────────────────────
@@ -1081,8 +1251,10 @@ function finishProvinceLasso() {
   const color = prompt('区域颜色 (hex):', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
   if (!name) { provinceLasso=[]; render(); return; }
   if (!mapData.provinces) mapData.provinces = {};
-  mapData.provinces[name] = {hexes:[...interior,...boundSet], color:color||'#ff0000', tag:activeTag||'',description:''};
-  provinceLasso=[]; selectedProvince=name; showProvinceList(); render();
+  const desc = prompt('区域描述 (可选):', '');
+  mapData.provinces[name] = {hexes:[...interior,...boundSet], color:color||'#ff0000', tag:activeTag||'',description:desc||''};
+  provinceLasso=[]; selectedProvince=name;
+  showRegionDetail(name); showTagList(); render();
 }
 
 function computeBoundaryHexes(provinceName) {

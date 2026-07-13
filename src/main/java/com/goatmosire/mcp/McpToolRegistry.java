@@ -43,6 +43,8 @@ public class McpToolRegistry {
             case "goatmosire_get_history"   -> handleGetHistory(args);
             case "goatmosire_list_worlds"   -> handleListWorlds(args);
             case "goatmosire_find_river_path" -> handleFindRiverPath(args);
+            case "goatmosire_list_regions"  -> handleListRegions(args);
+            case "goatmosire_get_distance"  -> handleGetDistance(args);
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
     }
@@ -128,6 +130,28 @@ public class McpToolRegistry {
               "q":{"type":"integer"},
               "r":{"type":"integer"}
             },"required":["worldId","q","r"]}""");
+
+        register("goatmosire_list_regions",
+            "List all regions with center coordinates, terrain composition, and adjacent region relationships.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"}
+            },"required":["worldId"]}""");
+
+        register("goatmosire_get_distance",
+            "Calculate hex distance between two points (by coordinates or region names).",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "fromQ":{"type":"integer"},
+              "fromR":{"type":"integer"},
+              "toQ":{"type":"integer"},
+              "toR":{"type":"integer"},
+              "fromRegion":{"type":"string"},
+              "toRegion":{"type":"string"}
+            },"required":["worldId"]}""");
     }
 
     private void register(String name, String description, String schema) {
@@ -184,9 +208,24 @@ public class McpToolRegistry {
             }
             hexes.add(h);
         }
+        // Build adjacency index for all regions
+        Map<String, Set<String>> regionHexSets = new LinkedHashMap<>();
+        for (var e : map.provinces().entrySet()) {
+            regionHexSets.put(e.getKey(), new HashSet<>(e.getValue().hexes()));
+        }
+        Set<String> ownSet = regionHexSets.get(name);
+        List<Map<String, Object>> adj = ownSet != null
+            ? computeAdjacency(name, ownSet, regionHexSets) : List.of();
+        int[] center = computeCenter(prov.hexes(), map);
+        Map<String, Integer> terrainComp = computeTerrainComposition(prov, map);
+
         return toJson(Map.of("found", true, "name", name, "hexCount", hexes.size(), "hexes", hexes,
             "tag", prov.tag() != null ? prov.tag() : "",
-            "description", prov.description() != null ? prov.description() : ""));
+            "description", prov.description() != null ? prov.description() : "",
+            "center", Map.of("q", center[0], "r", center[1]),
+            "adjacentRegions", adj,
+            "adjacentCount", adj.size(),
+            "terrainComposition", terrainComp));
     }
 
     private String handleGetNeighbors(JsonNode args) throws Exception {
@@ -255,7 +294,7 @@ public class McpToolRegistry {
         String worldId = args.get("worldId").asText();
         String nodeId = args.get("nodeId").asText();
         MapDiff diff = MapStore.loadDiff(
-            java.nio.file.Path.of(System.getProperty("user.home"), "GSimulator/worlds"),
+            mapService.getWorldsDir(),
             worldId, nodeId);
         if (diff == null) return toJson(Map.of("hasDiff", false, "nodeId", nodeId));
         return toJson(Map.of("hasDiff", true, "nodeId", nodeId,
@@ -269,7 +308,7 @@ public class McpToolRegistry {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         if (nodeId == null) {
-            var worldsDir = java.nio.file.Path.of(System.getProperty("user.home"), "GSimulator/worlds");
+            var worldsDir = mapService.getWorldsDir();
             var activeFile = worldsDir.resolve(worldId).resolve("active.json");
             if (java.nio.file.Files.exists(activeFile)) {
                 var n = MAPPER.readTree(activeFile.toFile());
@@ -298,6 +337,139 @@ public class McpToolRegistry {
         int r = args.get("r").asInt();
         List<String> path = mapService.findRiverPath(worldId, nodeId, q, r);
         return toJson(Map.of("source", Map.of("q", q, "r", r), "path", path, "length", path.size()));
+    }
+
+    private String handleListRegions(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
+        MapData map = nodeId != null ? mapService.resolve(worldId, nodeId) : mapService.resolveActive(worldId);
+
+        if (map.provinces() == null || map.provinces().isEmpty()) {
+            return toJson(Map.of("worldId", worldId, "regions", List.of(), "count", 0));
+        }
+
+        // Build adjacencies: for each region, find touching regions
+        Map<String, Set<String>> regionHexSets = new LinkedHashMap<>();
+        Map<String, MapData.Province> provs = map.provinces();
+        for (var entry : provs.entrySet()) {
+            regionHexSets.put(entry.getKey(), new HashSet<>(entry.getValue().hexes()));
+        }
+
+        List<Map<String, Object>> regions = new ArrayList<>();
+        for (var entry : provs.entrySet()) {
+            String name = entry.getKey();
+            MapData.Province prov = entry.getValue();
+            Set<String> hexSet = regionHexSets.get(name);
+
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("name", name);
+            r.put("tag", prov.tag() != null ? prov.tag() : "");
+            r.put("hexCount", prov.hexes().size());
+
+            // Center
+            int[] center = computeCenter(prov.hexes(), map);
+            r.put("center", Map.of("q", center[0], "r", center[1]));
+
+            // Terrain composition
+            r.put("terrainComposition", computeTerrainComposition(prov, map));
+
+            // Adjacent regions
+            List<Map<String, Object>> adj = computeAdjacency(name, hexSet, regionHexSets);
+            r.put("adjacentRegions", adj);
+            r.put("adjacentCount", adj.size());
+
+            regions.add(r);
+        }
+
+        return toJson(Map.of("worldId", worldId, "regions", regions, "count", regions.size()));
+    }
+
+    private String handleGetDistance(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
+        MapData map = nodeId != null ? mapService.resolve(worldId, nodeId) : mapService.resolveActive(worldId);
+
+        int fromQ, fromR, toQ, toR;
+        String fromLabel, toLabel;
+
+        if (args.has("fromRegion") && args.has("toRegion")) {
+            MapData.Province fromP = map.provinces().get(args.get("fromRegion").asText());
+            MapData.Province toP = map.provinces().get(args.get("toRegion").asText());
+            if (fromP == null || toP == null)
+                return toJson(Map.of("error", "Region not found"));
+            int[] fc = computeCenter(fromP.hexes(), map);
+            int[] tc = computeCenter(toP.hexes(), map);
+            fromQ = fc[0]; fromR = fc[1]; toQ = tc[0]; toR = tc[1];
+            fromLabel = args.get("fromRegion").asText();
+            toLabel = args.get("toRegion").asText();
+        } else if (args.has("fromQ") && args.has("toQ")) {
+            fromQ = args.get("fromQ").asInt();
+            fromR = args.get("fromR").asInt();
+            toQ = args.get("toQ").asInt();
+            toR = args.get("toR").asInt();
+            fromLabel = "(" + fromQ + "," + fromR + ")";
+            toLabel = "(" + toQ + "," + toR + ")";
+        } else {
+            return toJson(Map.of("error", "Provide (fromQ,fromR,toQ,toR) or (fromRegion,toRegion)"));
+        }
+
+        int hexDist = hexDistance(fromQ, fromR, toQ, toR);
+        return toJson(Map.of(
+            "from", fromLabel, "to", toLabel,
+            "fromCoord", Map.of("q", fromQ, "r", fromR),
+            "toCoord", Map.of("q", toQ, "r", toR),
+            "hexDistance", hexDist));
+    }
+
+    // ── Geometry helpers ───────────────────────────────────
+
+    private static int hexDistance(int q1, int r1, int q2, int r2) {
+        return (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs((-q1 - r1) - (-q2 - r2))) / 2;
+    }
+
+    private static int[] computeCenter(List<String> hexes, MapData map) {
+        if (hexes == null || hexes.isEmpty()) return new int[]{0, 0};
+        int sq = 0, sr = 0;
+        for (String hk : hexes) {
+            int[] qr = MapData.parseHexKey(hk);
+            sq += qr[0]; sr += qr[1];
+        }
+        return new int[]{Math.round((float) sq / hexes.size()), Math.round((float) sr / hexes.size())};
+    }
+
+    private static Map<String, Integer> computeTerrainComposition(MapData.Province prov, MapData map) {
+        Map<String, Integer> comp = new LinkedHashMap<>();
+        if (prov.hexes() == null || map.hexes() == null) return comp;
+        for (String hk : prov.hexes()) {
+            MapData.HexCell cell = map.hexes().get(hk);
+            if (cell != null) comp.merge(cell.terrain(), 1, Integer::sum);
+        }
+        return comp;
+    }
+
+    private static final int[][] DIRS = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+
+    private static List<Map<String, Object>> computeAdjacency(
+            String ownName, Set<String> ownHexes, Map<String, Set<String>> allRegionHexes) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (var entry : allRegionHexes.entrySet()) {
+            String otherName = entry.getKey();
+            if (otherName.equals(ownName)) continue;
+            Set<String> otherHexes = entry.getValue();
+
+            int sharedEdges = 0;
+            for (String hk : ownHexes) {
+                int[] qr = MapData.parseHexKey(hk);
+                for (int[] d : DIRS) {
+                    String nk = MapData.hexKey(qr[0] + d[0], qr[1] + d[1]);
+                    if (otherHexes.contains(nk)) sharedEdges++;
+                }
+            }
+            if (sharedEdges > 0) {
+                result.add(Map.of("name", otherName, "sharedEdges", sharedEdges));
+            }
+        }
+        return result;
     }
 
     private static String toJson(Object obj) throws Exception {

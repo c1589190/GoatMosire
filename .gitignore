@@ -3,7 +3,6 @@ example/
 
 # Maven
 target/
-*.jar
 *.class
 
 # IDE
