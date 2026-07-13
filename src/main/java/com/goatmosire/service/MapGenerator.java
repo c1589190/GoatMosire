@@ -4,10 +4,14 @@ import com.gsim.map.MapData;
 import java.util.*;
 
 /**
- * MapGenerator v5 — Subtropical Local Continent.
+ * MapGenerator v5.1 — Subtropical Local Continent (fixed).
  *
- * <p>Directional orogenic mountain ranges (not radial), wide lowland-dominant
- * terrain with embedded plains patches, and reduced ocean coverage.
+ * <p>Directional orogenic mountain ranges, lowland-dominant terrain with
+ * scattered plains patches, visible coastlines.
+ *
+ * <p>Key fixes vs v5.0: ridge weight raised to pierce noise floor,
+ * shelf bias reduced, baseSeaLevel restored to visible range,
+ * classification intervals tightened.
  */
 public class MapGenerator {
 
@@ -26,56 +30,57 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Ridge Placement v5 — Directional Orogenic Ranges
+    //  Ridge Placement v5.1 — Directional Orogenic Ranges
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Place ridges in a natural orogenic pattern:
-     *   1–2 main ranges with a clear primary direction, offset from centre.
-     *   3–4 secondary ranges roughly parallel or oblique to the mains.
-     *   A few short fragments at random locations.
-     *   No ridge starts near (0,0).
+     * 1–2 main ranges with a clear primary direction offset from centre,
+     * parallel/oblique secondary ranges, and a few scattered fragments.
      */
     public void placeRidges(int mainCount, int fragmentCount) {
         ridges = new ArrayList<>();
-        // 主方向：随机角度
-        double mainAngle = rng.nextDouble() * Math.PI;  // 0–180°
+        double mainAngle = rng.nextDouble() * Math.PI;           // 0–180°
 
         // ── 主山脉 (1–2 条) ──
         int actualMain = Math.max(1, Math.min(mainCount, 2));
         for (int i = 0; i < actualMain; i++) {
-            double angle = mainAngle + (i == 0 ? 0 : (rng.nextDouble() * 0.6 + 0.4) * (rng.nextBoolean() ? 1 : -1));
+            double angle = mainAngle + (i == 0 ? 0
+                : (rng.nextDouble() * 0.6 + 0.4) * (rng.nextBoolean() ? 1 : -1));
             double len = radius * (1.4 + rng.nextDouble() * 0.4);
-            // 起始点偏离中心 radius*0.3~0.6，与主方向垂直偏移
+
+            // 偏离中心，垂直主方向偏移
             double perpAngle = angle + Math.PI / 2;
-            double startOffset = radius * (0.3 + rng.nextDouble() * 0.3);
+            double startOffset = radius * (0.30 + rng.nextDouble() * 0.25);
             double sx = Math.cos(perpAngle) * startOffset + rng.nextGaussian() * radius * 0.03;
             double sy = Math.sin(perpAngle) * startOffset + rng.nextGaussian() * radius * 0.03;
 
+            // 贝塞尔控制点 → 弯曲
+            double curveAmp = rng.nextDouble() * radius * 0.22 * (rng.nextBoolean() ? 1 : -1);
+
             List<Pt> pts = new ArrayList<>();
             pts.add(new Pt(
-                sx - Math.cos(angle) * len * 0.45 + rng.nextGaussian() * radius * 0.02,
-                sy - Math.sin(angle) * len * 0.45 + rng.nextGaussian() * radius * 0.02));
-            // 贝塞尔控制点：产生弯曲
-            double curveAmp = rng.nextDouble() * radius * 0.25 * (rng.nextBoolean() ? 1 : -1);
-            double ctrlX = sx + Math.cos(perpAngle) * curveAmp + rng.nextGaussian() * radius * 0.03;
-            double ctrlY = sy + Math.sin(perpAngle) * curveAmp + rng.nextGaussian() * radius * 0.03;
-            pts.add(new Pt(ctrlX, ctrlY));
+                sx - Math.cos(angle) * len * 0.48 + rng.nextGaussian() * radius * 0.02,
+                sy - Math.sin(angle) * len * 0.48 + rng.nextGaussian() * radius * 0.02));
             pts.add(new Pt(
-                sx + Math.cos(angle) * len * 0.55 + rng.nextGaussian() * radius * 0.04,
-                sy + Math.sin(angle) * len * 0.55 + rng.nextGaussian() * radius * 0.04));
-            ridges.add(new Ridge(pts, 0.75 + rng.nextDouble() * 0.25));
+                sx + Math.cos(perpAngle) * curveAmp + rng.nextGaussian() * radius * 0.03,
+                sy + Math.sin(perpAngle) * curveAmp + rng.nextGaussian() * radius * 0.03));
+            pts.add(new Pt(
+                sx + Math.cos(angle) * len * 0.52 + rng.nextGaussian() * radius * 0.04,
+                sy + Math.sin(angle) * len * 0.52 + rng.nextGaussian() * radius * 0.04));
+            ridges.add(new Ridge(pts, 0.80 + rng.nextDouble() * 0.20));
         }
 
-        // ── 次级山脉 (3–4 条，大致平行/斜交主方向) ──
+        // ── 次级山脉 (大致平行/斜交主方向) ──
         int secondary = Math.max(2, fragmentCount / 2);
         for (int i = 0; i < secondary; i++) {
-            double offsetAngle = mainAngle + (rng.nextDouble() * 0.5 + 0.15) * (rng.nextBoolean() ? 1 : -1);
-            double perpDist = radius * (0.15 + rng.nextDouble() * 0.35) * (rng.nextBoolean() ? 1 : -1);
-            double len = radius * (0.6 + rng.nextDouble() * 0.5);
-            double sx = Math.cos(mainAngle) * radius * (0.05 + rng.nextDouble() * 0.3)
+            double offsetAngle = mainAngle
+                + (rng.nextDouble() * 0.45 + 0.15) * (rng.nextBoolean() ? 1 : -1);
+            double perpDist = radius * (0.12 + rng.nextDouble() * 0.30)
+                * (rng.nextBoolean() ? 1 : -1);
+            double len = radius * (0.55 + rng.nextDouble() * 0.45);
+            double sx = Math.cos(mainAngle) * radius * (0.05 + rng.nextDouble() * 0.25)
                        + Math.cos(mainAngle + Math.PI / 2) * perpDist;
-            double sy = Math.sin(mainAngle) * radius * (0.05 + rng.nextDouble() * 0.3)
+            double sy = Math.sin(mainAngle) * radius * (0.05 + rng.nextDouble() * 0.25)
                        + Math.sin(mainAngle + Math.PI / 2) * perpDist;
 
             List<Pt> pts = new ArrayList<>();
@@ -85,64 +90,60 @@ public class MapGenerator {
             pts.add(new Pt(
                 sx + Math.cos(offsetAngle) * len * 0.5 + rng.nextGaussian() * radius * 0.02,
                 sy + Math.sin(offsetAngle) * len * 0.5 + rng.nextGaussian() * radius * 0.02));
-            ridges.add(new Ridge(pts, 0.3 + rng.nextDouble() * 0.35));
+            ridges.add(new Ridge(pts, 0.30 + rng.nextDouble() * 0.30));
         }
 
         // ── 碎片 (远离中心，低权重) ──
         int frags = fragmentCount - secondary;
         for (int i = 0; i < frags; i++) {
             double angle = rng.nextDouble() * 2 * Math.PI;
-            double dist = radius * (0.45 + rng.nextDouble() * 0.45);
+            double dist = radius * (0.45 + rng.nextDouble() * 0.40);
             double cx = Math.cos(angle) * dist;
             double cy = Math.sin(angle) * dist;
-            double flen = radius * (0.04 + rng.nextDouble() * 0.10);
+            double flen = radius * (0.04 + rng.nextDouble() * 0.08);
             double fangle = angle + rng.nextGaussian() * 0.5;
             List<Pt> pts = new ArrayList<>();
-            pts.add(new Pt(cx - Math.cos(fangle) * flen * 0.5, cy - Math.sin(fangle) * flen * 0.5));
-            pts.add(new Pt(cx + Math.cos(fangle) * flen * 0.5, cy + Math.sin(fangle) * flen * 0.5));
-            ridges.add(new Ridge(pts, 0.10 + rng.nextDouble() * 0.18));
+            pts.add(new Pt(cx - Math.cos(fangle) * flen * 0.5,
+                           cy - Math.sin(fangle) * flen * 0.5));
+            pts.add(new Pt(cx + Math.cos(fangle) * flen * 0.5,
+                           cy + Math.sin(fangle) * flen * 0.5));
+            ridges.add(new Ridge(pts, 0.08 + rng.nextDouble() * 0.14));
         }
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Height Field v5 — Multi-noise + Ridge Attenuation
+    //  Generation
     // ═══════════════════════════════════════════════════════
 
-    /** Generate contour for external use (retained for API compat). */
     public ContinentContour generateContour(double landRatio) {
-        double baseSeaLevel = 0.04 + (1.0 - landRatio) * 0.06;  // lower sea → more land
+        double baseSeaLevel = 0.18 + (1.0 - landRatio) * 0.06;
         double shelfFreq = 2.0 / radius;
         double lowFreq   = 4.0 / radius;
         double midFreq   = 9.0 / radius;
         double highFreq  = 22.0 / radius;
         double coastFreq = 4.0 / radius;
-
         List<ContinentContour.Ridge> contourRidges = new ArrayList<>();
         for (Ridge r : ridges) {
             List<ContinentContour.Pt> pts = new ArrayList<>();
             for (Pt p : r.points) pts.add(new ContinentContour.Pt(p.x, p.y));
             contourRidges.add(new ContinentContour.Ridge(pts, r.weight));
         }
-
         return new ContinentContour(
             rng.nextLong(), radius, landRatio, contourRidges,
-            baseSeaLevel, shelfFreq, lowFreq, midFreq, highFreq, coastFreq
-        );
+            baseSeaLevel, shelfFreq, lowFreq, midFreq, highFreq, coastFreq);
     }
 
-    /** Materialize the full hex map for a given land ratio. */
+    /** Full hex map for the given land ratio. */
     public MapData generate(double landRatio) {
-        if (ridges == null || ridges.isEmpty()) {
-            placeRidges(2, 5);
-        }
+        if (ridges == null || ridges.isEmpty()) placeRidges(2, 5);
 
         LinkedHashMap<String, MapData.TerrainType> terrainTypes = defaultTerrainTypes();
         Map<String, MapData.HexCell> hexes = new LinkedHashMap<>();
-        double baseSeaLevel = 0.03 + (1.0 - landRatio) * 0.05;  // 降低海平面
+        // 基准海平面提升到可见范围
+        double baseSeaLevel = 0.18 + (1.0 - landRatio) * 0.05;
 
         for (int q = -radius; q <= radius; q++) {
             for (int r = -radius; r <= radius; r++) {
-                // 六边形距离：超出地图范围的跳过
                 int s = -q - r;
                 if (Math.abs(q) > radius || Math.abs(r) > radius || Math.abs(s) > radius) continue;
 
@@ -150,8 +151,8 @@ public class MapGenerator {
                 double px = pos[0], py = pos[1];
 
                 // 域扭曲
-                double warpX = noise.noise2(px * 0.015 + 300, py * 0.015 + 300) * radius * 0.12;
-                double warpY = noise.noise2(px * 0.015 + 700, py * 0.015 + 700) * radius * 0.12;
+                double warpX = noise.noise2(px * 0.015 + 300, py * 0.015 + 300) * radius * 0.10;
+                double warpY = noise.noise2(px * 0.015 + 700, py * 0.015 + 700) * radius * 0.10;
 
                 double height = computeHeight(px + warpX, py + warpY, baseSeaLevel, landRatio);
                 String terrain = classifyByHeight(height, px, py);
@@ -159,9 +160,8 @@ public class MapGenerator {
                 if ("water".equals(terrain)) {
                     hexes.put(MapData.hexKey(q, r), waterCell());
                 } else {
-                    String color = terrainColor(terrain);
                     hexes.put(MapData.hexKey(q, r),
-                        new MapData.HexCell(color, terrain, null, null, "", 0));
+                        new MapData.HexCell(terrainColor(terrain), terrain, null, null, "", 0));
                 }
             }
         }
@@ -171,52 +171,48 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Height Computation
+    //  Height Computation v5.1 — Ridge-forward
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Composite height = ridgeHeight + shelfNoise + terrainNoise − valleyPenalty.
-     * shelfNoise 低频正偏置抬升大陆架 → 扩大陆地。
+     * Ridge weight dominates (0.70) so mountains pierce the noise floor.
+     * Shelf noise is mild (0.28) — just enough for gentle continental bias.
+     * landBias is capped low so mountains are visible at all land ratios.
      */
     private double computeHeight(double px, double py, double baseSeaLevel, double landRatio) {
-        double ridgeH = computeRidgeHeight(px, py);
-        double shelfFreq = 2.0 / radius;
-        double terrainFreq = 4.5 / radius;
-        double detailFreq = 10.0 / radius;
+        double ridgeH    = computeRidgeHeight(px, py);
+        double shelfFreq = 2.0 / radius, terrainFreq = 5.0 / radius, detailFreq = 12.0 / radius;
 
-        // 大陆架噪声：低频 + 正偏置（0.3 → 整体抬高）
-        double shelf = noise.noise2(px * shelfFreq + 100, py * shelfFreq + 100) * 0.5 + 0.30;
+        // 大陆架：低频轻偏置
+        double shelf   = noise.noise2(px * shelfFreq + 100, py * shelfFreq + 100) * 0.40 + 0.08;
 
-        // 地形噪声：中频波动
-        double terrain = noise.noise2(px * terrainFreq + 200, py * terrainFreq + 200) * 0.35;
+        // 地形：中频
+        double terrain = noise.noise2(px * terrainFreq + 200, py * terrainFreq + 200) * 0.30;
 
-        // 细节噪声：高频小振幅
-        double detail = noise.noise2(px * detailFreq + 400, py * detailFreq + 400) * 0.10;
+        // 细节：高频小振幅
+        double detail  = noise.noise2(px * detailFreq + 400, py * detailFreq + 400) * 0.08;
 
-        // 脊线高度 (0–1, 仅山脊附近显著)
-        // 山谷惩罚：山脊间低洼
-        double valley = computeValleyPenalty(px, py);
+        double valley  = computeValleyPenalty(px, py);
 
-        // 陆地偏置：landRatio 越高，整体基线越高
-        double landBias = (landRatio - 0.4) * 0.25;
+        // 陆地偏置：微弱调整，不让脊线被埋没
+        double landBias = Math.max(0, (landRatio - 0.45) * 0.10);
 
-        return ridgeH * 0.55 + shelf * 0.55 + terrain * 0.35 + detail * 0.15
-             - valley * 0.15 - baseSeaLevel * 0.8 + landBias;
+        return ridgeH * 0.70 + shelf * 0.28 + terrain * 0.30 + detail * 0.10
+             - valley * 0.12 - baseSeaLevel * 0.85 + landBias;
     }
 
-    /** Sharp ridge attenuation — k=10~13 for thin spines. */
+    /** Sharp ridge attenuation — k=11~14 for thin spines. */
     private double computeRidgeHeight(double px, double py) {
         double best = 0;
         for (Ridge r : ridges) {
             double d = distToRidge(px, py, r.points);
-            double k = 10.0 + r.weight * 3.0; // main ~12.5, secondary ~10.5, fragment ~9.5
+            double k = 11.0 + r.weight * 4.0;   // main ~14, secondary ~12, fragment ~10
             double h = Math.exp(-d * k / radius);
             if (h > best) best = h;
         }
         return best;
     }
 
-    /** Penalty in valleys between ridges — reduced from v4. */
     private double computeValleyPenalty(double px, double py) {
         if (ridges.size() < 2) return 0;
         double d1 = Double.MAX_VALUE, d2 = Double.MAX_VALUE;
@@ -225,40 +221,50 @@ public class MapGenerator {
             if (d < d1) { d2 = d1; d1 = d; }
             else if (d < d2) { d2 = d; }
         }
-        double sigma = radius * 0.08;
+        double sigma = radius * 0.07;
         return Math.exp(-d1 * d1 / (2 * sigma * sigma))
-             * Math.exp(-d2 * d2 / (2 * sigma * sigma)) * 0.20;
+             * Math.exp(-d2 * d2 / (2 * sigma * sigma)) * 0.15;
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Terrain Classification v5 — Lowland Dominant
+    //  Classification v5.1 — Tightened intervals
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Classify height into terrain types. Thresholds tuned for subtropical
-     * local continent with wide lowland and thin mountain ridges.
+     * Tightened bands so terrain layers are clearly visible:
+     * <pre>
+     *   mountain  > 0.68        thinner, sharper peaks
+     *   hills     0.50 – 0.68
+     *   plains    0.38 – 0.50  smaller area, mixed with hill patches
+     *   lowland   0.18 – 0.38  dominant lowland, ~15% plains patches inside
+     *   swamp     0.12 – 0.18  coastal / low-lying
+     *   water     < 0.12
+     * </pre>
      */
     private String classifyByHeight(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
 
-        if (height > 0.70) return "mountain";
-        if (height > 0.52) return "hills";
-
-        // 较高平原：面积较小，掺入 hills 斑块
-        if (height > 0.40) {
-            return (moisture + noise.noise2(px * 0.06, py * 0.06)) > 0.15 ? "hills" : "plains";
+        if (height > 0.68) return "mountain";
+        if (height > 0.50) {
+            // hills 带少量 plains 斑块
+            return (moisture + noise.noise2(px * 0.06, py * 0.06)) > 0.10 ? "hills" : "plains";
         }
 
-        // lowland 主导低地：内部随机 plains 斑块（~15-20% 概率）
-        if (height > 0.14) {
+        if (height > 0.38) {
+            // 较高平原，掺入 hills 斑块 → 面积较小
+            return (moisture + noise.noise2(px * 0.06, py * 0.06)) > 0.12 ? "hills" : "plains";
+        }
+
+        if (height > 0.18) {
+            // 低地主导，内部随机 plains 斑块 ~12–18%
             double patchNoise = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
-            if (patchNoise > 0.42) return "plains";  // 随机小斑块
+            if (patchNoise > 0.44) return "plains";
             return "lowland";
         }
 
-        // 极低：沿海沼泽 或 水域
-        if (height > 0.10) {
-            return moisture > -0.2 ? "swamp" : "lowland";
+        // 极低
+        if (height > 0.12) {
+            return moisture > -0.15 ? "swamp" : "lowland";
         }
         return "water";
     }
@@ -267,32 +273,30 @@ public class MapGenerator {
     //  Geometry
     // ═══════════════════════════════════════════════════════
 
-    /** Point-to-segment distance for ridge proximity. */
     private double distToRidge(double px, double py, List<Pt> pts) {
         double minD = Double.MAX_VALUE;
         for (int i = 0; i < pts.size() - 1; i++) {
             Pt a = pts.get(i), b = pts.get(i + 1);
-            double dx = b.x - a.x, dy = b.y - a.y;
-            double len2 = dx * dx + dy * dy;
+            double dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
             if (len2 < 0.001) {
                 double d = Math.sqrt((px - a.x) * (px - a.x) + (py - a.y) * (py - a.y));
                 if (d < minD) minD = d;
             } else {
                 double t = Math.max(0, Math.min(1,
                     ((px - a.x) * dx + (py - a.y) * dy) / len2));
-                double cx = a.x + t * dx, cy = a.y + t * dy;
-                double d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+                double d = Math.sqrt((px - a.x - t * dx) * (px - a.x - t * dx)
+                                   + (py - a.y - t * dy) * (py - a.y - t * dy));
                 if (d < minD) minD = d;
             }
         }
         return minD;
     }
 
-    /** Axial hex coords → world position (flat-top hex). */
     private static double[] hexToWorld(int q, int r) {
-        double x = (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r) * 30.0;
-        double y = (3.0 / 2 * r) * 30.0;
-        return new double[]{x, y};
+        return new double[]{
+            (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r) * 30.0,
+            (3.0 / 2 * r) * 30.0
+        };
     }
 
     // ═══════════════════════════════════════════════════════
@@ -325,17 +329,14 @@ public class MapGenerator {
         double noise2(double x, double y) {
             int xi = (int) Math.floor(x), yi = (int) Math.floor(y);
             double xf = x - xi, yf = y - yi;
-            double n00 = dotGrid(xi, yi, xf, yf);
-            double n10 = dotGrid(xi + 1, yi, xf - 1, yf);
-            double n01 = dotGrid(xi, yi + 1, xf, yf - 1);
-            double n11 = dotGrid(xi + 1, yi + 1, xf - 1, yf - 1);
             double u = smooth(xf), v = smooth(yf);
-            return lerp(lerp(n00, n10, u), lerp(n01, n11, u), v);
+            return lerp(
+                lerp(dotGrid(xi, yi, xf, yf), dotGrid(xi + 1, yi, xf - 1, yf), u),
+                lerp(dotGrid(xi, yi + 1, xf, yf - 1), dotGrid(xi + 1, yi + 1, xf - 1, yf - 1), u), v);
         }
 
         private double dotGrid(int ix, int iy, double dx, double dy) {
-            long h = hash(ix, iy);
-            double angle = (h & 0xFFFF) * (2.0 * Math.PI / 65536.0);
+            double angle = (hash(ix, iy) & 0xFFFF) * (2.0 * Math.PI / 65536.0);
             return Math.cos(angle) * dx + Math.sin(angle) * dy;
         }
 
@@ -353,7 +354,7 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Terrain Types — v5 adds lowland, retains forest for compat
+    //  Terrain Types
     // ═══════════════════════════════════════════════════════
 
     static LinkedHashMap<String, MapData.TerrainType> defaultTerrainTypes() {
@@ -371,7 +372,7 @@ public class MapGenerator {
     }
 
     // ═══════════════════════════════════════════════════════
-    //  Static Factory — retained for API compat
+    //  Static Factory
     // ═══════════════════════════════════════════════════════
 
     public static MapData generate(String worldId, long seed, int mapRadius,
