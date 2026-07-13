@@ -169,14 +169,15 @@ public class ContourQueryEngine {
 
     private String classify(double height, double px, double py) {
         double moisture = noise.noise2(px * 0.02 + 500, py * 0.02 + 500);
-        if (height > 0.68) return "mountain";
-        if (height > 0.48) return "hills";
-        // plains 面积缩小：0.35-0.48 区间，部分掺入 hills
+        // mountain 收窄 0.68→0.72, hills 扩大到 0.45-0.72
+        if (height > 0.72) return "mountain";
+        if (height > 0.45) return moisture > 0.08 ? "hills" : "plains";
+        // plains 区间 0.35-0.45，部分掺入 hills
         if (height > 0.35) return moisture > 0.05 ? "hills" : "plains";
-        // lowland (原 forest) 区间扩大：0.12-0.35，内部随机 plains 斑块
+        // lowland 0.12-0.35，内部随机 plains 斑块
         if (height > 0.12) {
             double patch = noise.noise2(px * 0.05 + 600, py * 0.05 + 600);
-            if (patch > 0.44) return "plains";  // ~12% 斑块
+            if (patch > 0.44) return "plains";
             return "lowland";
         }
         return moisture > 0.15 ? "swamp" : "lowland";
