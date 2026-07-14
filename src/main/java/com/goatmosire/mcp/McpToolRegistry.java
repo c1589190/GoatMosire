@@ -41,7 +41,6 @@ public class McpToolRegistry {
             case "goatmosire_get_cities"    -> handleGetCities(args);
             case "goatmosire_get_diff"      -> handleGetDiff(args);
             case "goatmosire_get_history"   -> handleGetHistory(args);
-            case "goatmosire_list_worlds"   -> handleListWorlds(args);
             case "goatmosire_find_river_path" -> handleFindRiverPath(args);
             case "goatmosire_list_regions"  -> handleListRegions(args);
             case "goatmosire_get_distance"  -> handleGetDistance(args);
@@ -120,11 +119,6 @@ public class McpToolRegistry {
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"}
             },"required":["worldId"]}""");
-
-        register("goatmosire_list_worlds",
-            "List all GSim worlds that have map data.",
-            """
-            {"type":"object","properties":{},"required":[]}""");
 
         register("goatmosire_find_river_path",
             "Find the minimum-cost river path from a source hex to the nearest water or map edge. Uses terrain moveCost as edge weight.",
@@ -214,6 +208,7 @@ public class McpToolRegistry {
               "nodeId":{"type":"string"},
               "name":{"type":"string","description":"Region name to delete"}
             },"required":["worldId","name"]}""");
+
     }
 
     private void register(String name, String description, String schema) {
@@ -385,11 +380,6 @@ public class McpToolRegistry {
                 "hexCount", h.map().hexes().size()));
         }
         return toJson(Map.of("worldId", worldId, "chain", entries));
-    }
-
-    private String handleListWorlds(JsonNode args) throws Exception {
-        List<String> worlds = mapService.listWorldsWithMaps();
-        return toJson(Map.of("worlds", worlds));
     }
 
     private String handleFindRiverPath(JsonNode args) throws Exception {
