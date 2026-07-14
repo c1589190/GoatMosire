@@ -10,8 +10,10 @@ target/
 *.iml
 .vscode/
 
+# Data
+worlds/
+
 # OS
 .DS_Store
 Thumbs.db
 dependency-reduced-pom.xml
-target/
