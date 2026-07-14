@@ -786,15 +786,17 @@ function setTool(t) {
   riverStart = null;
   provinceLasso = [];
   lassoPts = [];
-  if (t !== 'province') relassoTarget = null;
+  if (t !== 'province') { relassoTarget = null; selectedProvince = null; activeTag = null; }
   if (t === 'province') {
     showTagList();
     document.getElementById('rightPanel').style.display = 'block';
   } else {
     document.getElementById('rightPanel').style.display = 'none';
     document.getElementById('leftPanel').style.display = 'none';
-    selectedProvince = null;
+    canvas._boundaryHexes = null;
+    canvas.style.cursor = '';
   }
+  render();
 }
 
 // ── River constants ─────────────────────────────────────
@@ -1114,12 +1116,13 @@ function deleteProvince(name) {
 }
 
 function renderProvinceHighlight() {
+  if (tool !== 'province') { canvas._boundaryHexes = null; return; }
   if (!mapData?.provinces) return;
   const provs = mapData.provinces;
 
   // Determine which regions to highlight and collect all highlighted hex keys
   let toRender = [];
-  const highlightSet = new Set(); // all hex keys that should stay bright
+  const highlightSet = new Set();
   if (activeTag) {
     for (const [name, p] of Object.entries(provs)) {
       if (p.tag === activeTag && p.hexes?.length) {
@@ -1216,6 +1219,7 @@ canvas.addEventListener('mousedown', e => {
       if (h) addProvincePoint(h.q, h.r);
       return;
     }
+    if (tool === 'river') return; // river is left-click only, ignore right-click
     mouseDown = true;
     clickHex = getHexAtEvent(e);
     if (clickHex) applyTool(clickHex.q, clickHex.r);
