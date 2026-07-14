@@ -68,6 +68,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   border-radius: 4px; cursor: pointer; font-size: 10px;
 }
 .adjacent-item:hover { background: var(--accent); color: #fff; }
+
+/* Tag cards — foldable + draggable */
+.tag-card { margin-bottom: 4px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.tag-card.drag-over { outline: 2px dashed var(--accent); }
+.tag-card.dragging { opacity: 0.4; }
+.tag-header {
+  display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 4px;
+  cursor: pointer; user-select: none;
+}
+.tag-header:hover { background: rgba(255,255,255,0.03); }
+.tag-fold {
+  width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+  font-size: 8px; color: var(--dim); flex-shrink: 0; transition: transform 0.15s;
+}
+.tag-fold.folded { transform: rotate(-90deg); }
+.tag-drag-handle {
+  width: 12px; height: 16px; display: flex; align-items: center; justify-content: center;
+  font-size: 8px; color: var(--dim); cursor: grab; flex-shrink: 0; letter-spacing: -2px;
+}
+.tag-drag-handle:active { cursor: grabbing; }
+.tag-body { padding: 0 6px 6px 24px; }
+.tag-body.collapsed { display: none; }
+
 .terrain-chip {
   display: inline-block; padding: 1px 6px; margin: 1px 2px;
   border-radius: 4px; font-size: 10px; color: #fff;
@@ -256,20 +279,41 @@ function showTagList() {
   if (tags.length === 0) {
     html += '<div style="color:var(--dim);font-size:11px;padding:4px">暂无标签，点击上方新建</div>';
   } else {
-    html += tags.map(([name, t]) => {
+    // Sort by saved order
+    const order = getTagOrder();
+    tags.sort((a, b) => {
+      const ai = order.indexOf(a[0]), bi = order.indexOf(b[0]);
+      if (ai >= 0 && bi >= 0) return ai - bi;
+      if (ai >= 0) return -1;
+      if (bi >= 0) return 1;
+      return 0;
+    });
+
+    html += tags.map(([name, t], idx) => {
       const regions = allProvs.filter(([rn,r]) => r.tag === name);
-      const active = activeTag === name ? 'border:2px solid var(--accent);' : '';
-      return `<div style="margin-bottom:4px;padding:6px;background:var(--bg);border-radius:4px;cursor:pointer;${active}" onclick="selectTag('${name}')">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${t.color};margin-right:4px"></span><b>${name}</b></span>
-          <span style="font-size:10px;color:var(--dim)">${regions.length} 区域</span>
-          <button onclick="event.stopPropagation();deleteTag('${name}')" style="font-size:12px;background:none;border:none;color:var(--dim);cursor:pointer">✕</button>
+      const active = activeTag === name ? 'outline: 2px solid var(--accent);' : '';
+      const collapsed = isTagCollapsed(name);
+      return `<div class="tag-card" style="${active}" draggable="true"
+          ondragstart="onTagDragStart(event,'${name}')"
+          ondragover="onTagDragOver(event)"
+          ondragleave="onTagDragLeave(event)"
+          ondrop="onTagDrop(event,'${name}')"
+          ondragend="onTagDragEnd(event)">
+        <div class="tag-header">
+          <span class="tag-drag-handle" title="拖动排序">⠿</span>
+          <span class="tag-fold${collapsed?' folded':''}" onclick="event.stopPropagation();toggleTag('${name}')">▼</span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${t.color};margin-right:4px;flex-shrink:0"></span>
+          <b style="flex:1;font-size:12px;cursor:pointer" onclick="event.stopPropagation();selectTag('${name}')">${name}</b>
+          <span style="font-size:10px;color:var(--dim);margin-right:4px">${regions.length}</span>
+          <button onclick="event.stopPropagation();deleteTag('${name}')" style="font-size:12px;background:none;border:none;color:var(--dim);cursor:pointer;padding:0 2px">✕</button>
         </div>
-        ${regions.length > 0 ? regions.map(([rn,r]) =>
-          `<div style="margin-left:12px;margin-top:3px;font-size:10px;cursor:pointer;padding:2px;${selectedProvince===rn?'background:#333;border-radius:2px;':''}" onclick="event.stopPropagation();selectProvince('${rn}')">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:1px;background:${r.color||t.color};margin-right:4px"></span>${rn} (${r.hexes.length}格)
-          </div>`
-        ).join('') : '<div style="margin-left:12px;font-size:9px;color:var(--dim)">右键在地图上圈地创建区域</div>'}
+        <div class="tag-body${collapsed?' collapsed':''}">
+          ${regions.length > 0 ? regions.map(([rn,r]) =>
+            `<div style="margin-top:2px;font-size:10px;cursor:pointer;padding:2px 4px;${selectedProvince===rn?'background:#333;border-radius:2px;':''}" onclick="event.stopPropagation();selectProvince('${rn}')">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:1px;background:${r.color||t.color};margin-right:4px"></span>${rn} (${r.hexes.length}格)
+            </div>`
+          ).join('') : '<div style="font-size:9px;color:var(--dim);padding:2px 4px">右键在地图上圈地创建区域</div>'}
+        </div>
       </div>`;
     }).join('');
   }
@@ -292,7 +336,73 @@ function showTagList() {
   body.innerHTML = html;
   document.getElementById('rightPanel').style.display = 'block';
 }
+
+// ── Tag fold/collapse ──────────────────────────────────
+function isTagCollapsed(name) {
+  try {
+    const s = localStorage.getItem('goatmosire_collapsed_' + MapAPI.worldId);
+    return s ? JSON.parse(s).includes(name) : false;
+  } catch(e) { return false; }
+}
+function toggleTag(name) {
+  try {
+    const key = 'goatmosire_collapsed_' + MapAPI.worldId;
+    let arr = JSON.parse(localStorage.getItem(key) || '[]');
+    const idx = arr.indexOf(name);
+    if (idx >= 0) arr.splice(idx, 1); else arr.push(name);
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch(e) {}
+  showTagList(); // re-render
+}
+
+// ── Tag drag reorder ──────────────────────────────────
+let tagDragSource = null;
+function getTagOrder() {
+  try { return JSON.parse(localStorage.getItem('goatmosire_tagOrder_' + MapAPI.worldId) || '[]'); }
+  catch(e) { return []; }
+}
+function saveTagOrder(order) {
+  localStorage.setItem('goatmosire_tagOrder_' + MapAPI.worldId, JSON.stringify(order));
+}
+function onTagDragStart(e, name) {
+  tagDragSource = name;
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', name);
+}
+function onTagDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function onTagDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+function onTagDrop(e, targetName) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!tagDragSource || tagDragSource === targetName) return;
+  const order = getTagOrder();
+  const tags = Object.keys(mapData.tags);
+  // Ensure all tag names are in order
+  for (const t of tags) { if (!order.includes(t)) order.push(t); }
+  // Remove source, insert before target
+  const si = order.indexOf(tagDragSource);
+  const ti = order.indexOf(targetName);
+  if (si >= 0) order.splice(si, 1);
+  const newTi = order.indexOf(targetName);
+  order.splice(newTi, 0, tagDragSource);
+  saveTagOrder(order);
+  tagDragSource = null;
+  showTagList();
+}
+function onTagDragEnd(e) {
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.tag-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+  tagDragSource = null;
+}
 let provinceLasso = [];
+let relassoTarget = null;  // region name being re-lassoed
 let zoom = 1;
 let offX = 0, offY = 0;
 let mouseDown = false;
@@ -676,6 +786,7 @@ function setTool(t) {
   riverStart = null;
   provinceLasso = [];
   lassoPts = [];
+  if (t !== 'province') relassoTarget = null;
   if (t === 'province') {
     showTagList();
     document.getElementById('rightPanel').style.display = 'block';
@@ -956,7 +1067,8 @@ function showRegionDetail(name) {
         </span>`
       ).join('')}</div>
     </div>` : '<div class="field" style="color:var(--dim)">无邻接区域</div>'}
-    <button onclick="deleteProvince('${name}')" style="color:#e74c3c;border-color:#e74c3c;margin-top:4px">🗑 删除</button>
+    <button onclick="relassoProvince('${name}')" style="margin-top:4px" title="右键拖动重新划定区域边界">🔄 重圈</button>
+    <button onclick="deleteProvince('${name}')" style="color:#e74c3c;border-color:#e74c3c;margin-top:4px;margin-left:4px">🗑 删除</button>
     <button onclick="document.getElementById('leftPanel').style.display='none';showTagList()" style="margin-top:4px;margin-left:4px">← 关闭详情</button>`;
 }
 
@@ -976,10 +1088,26 @@ function selectProvince(name) {
   render();
 }
 
+function relassoProvince(name) {
+  if (!mapData.provinces[name]) return;
+  const p = mapData.provinces[name];
+  p.hexes = [];
+  canvas._boundaryCache = null;
+  delete canvas['b_' + name];
+  selectedProvince = name;
+  provinceLasso = [];
+  relassoTarget = name;
+  setTool('province');
+  showRegionDetail(name);
+  render();
+  setStatus(`重圈「${name}」: 右键拖动圈出新边界`);
+}
+
 function deleteProvince(name) {
   if (confirm(`删除区域「${name}」？`)) {
     delete mapData.provinces[name];
     if (selectedProvince === name) selectedProvince = null;
+    relassoTarget = null;
     showTagList();
     render();
   }
@@ -1045,7 +1173,7 @@ function renderProvinceHighlight() {
     for (const b of canvas[cacheName]) {
       const {x, y} = hexToPixel(b.q, b.r);
       if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
-      ctx.beginPath(); ctx.arc(x, y, 3/zoom, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, 5/zoom, 0, Math.PI*2); ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
@@ -1078,12 +1206,12 @@ canvas.addEventListener('mousedown', e => {
   // Left click: pan or province boundary drag
   if (e.button === 0) {
     if (tool === 'province' && selectedProvince && canvas._boundaryHexes) {
-      const rc = canvas.getBoundingClientRect();
-      const mx = (e.clientX - rc.left - offX) / zoom;
-      const my = (e.clientY - rc.top - offY) / zoom;
-      for (const bp of canvas._boundaryHexes) {
-        const {x:bx, y:by} = hexToPixel(bp.q, bp.r);
-        if (Math.hypot(mx-bx, my-by) < 8/zoom) { dragPoint = bp; return; }
+      // Hit-test against the whole hex cell, not just the small dot
+      const h = getHexAtEvent(e);
+      if (h) {
+        for (const bp of canvas._boundaryHexes) {
+          if (bp.q === h.q && bp.r === h.r) { dragPoint = bp; return; }
+        }
       }
     }
     panStart = {x: e.clientX, y: e.clientY}; panOff = {x: offX, y: offY};
@@ -1119,7 +1247,8 @@ canvas.addEventListener('mousemove', e => {
         if (!p.hexes.includes(newKey) && mapData.hexes[newKey]) p.hexes.push(newKey);
         else if (p.hexes.includes(newKey) && newKey !== oldKey) p.hexes = p.hexes.filter(k => k !== oldKey);
         dragPoint = {q: h.q, r: h.r};
-        canvas._boundaryCache = null; // invalidate
+        canvas._boundaryCache = null;
+        delete canvas['b_' + selectedProvince];
         render();
       }
     }
@@ -1312,6 +1441,19 @@ function finishProvinceLasso() {
       if(!boundSet.has(nk)&&!visited.has(nk)&&mapData.hexes[nk]) queue.push({q:q+dq,r:r+dr});
     }
   }
+
+  // Re-lasso: assign to existing region, keep name/color/tag
+  if (relassoTarget) {
+    const targetName = relassoTarget;
+    const p = mapData.provinces[targetName];
+    if (p) { p.hexes = [...interior, ...boundSet]; }
+    canvas._boundaryCache = null;
+    delete canvas['b_' + targetName];
+    provinceLasso = []; relassoTarget = null; selectedProvince = targetName;
+    setStatus(`已重圈: ${targetName}`);
+    showRegionDetail(targetName); showTagList(); render(); return;
+  }
+
   const name = prompt('区域名称:', '区域'+(Object.keys(mapData.provinces||{}).length+1));
   const color = prompt('区域颜色 (hex):', '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
   if (!name) { provinceLasso=[]; render(); return; }
