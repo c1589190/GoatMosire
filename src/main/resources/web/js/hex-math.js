@@ -41,19 +41,22 @@ function pointInPolygon(px, py, polygon) {
   return inside;
 }
 
-// ── Hex line (Bresenham-style) ──────────────────────────
+// ── Hex line (Bresenham-style cube interpolation) ──────────
 function hexLine(aq, ar, bq, br) {
   const dist = (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq-ar + bq+br)) / 2;
   if (dist === 0) return [{q: aq, r: ar}];
+  // Work in cube coordinates for correct interpolation & rounding
+  const ax = aq, ay = ar, az = -aq - ar;
+  const bx = bq, by = br, bz = -bq - br;
   const pts = [];
   for (let i = 0; i <= dist; i++) {
     const t = i / dist;
-    const fq = aq + (bq - aq) * t, fr = ar + (br - ar) * t;
-    let q = Math.round(fq), r = Math.round(fr);
-    const dq = Math.abs(fq - q), dr = Math.abs(fr - r), ds = Math.abs(-fq-fr - (-q-r));
-    if (dq > dr && dq > ds) q = -r - (-q-r);
-    else if (dr > ds) r = -q - (-q-r);
-    pts.push({q, r});
+    const fx = ax + (bx - ax) * t, fy = ay + (by - ay) * t, fz = az + (bz - az) * t;
+    let rx = Math.round(fx), ry = Math.round(fy), rz = Math.round(fz);
+    const dx = Math.abs(rx - fx), dy = Math.abs(ry - fy), dz = Math.abs(rz - fz);
+    if (dx > dy && dx > dz) rx = -ry - rz;
+    else if (dy > dz) ry = -rx - rz;
+    pts.push({q: rx, r: ry});
   }
   return pts;
 }

@@ -182,6 +182,24 @@ function renderProvinceHighlight() {
       ctx.beginPath(); ctx.arc(x, y, 5/zoom, 0, Math.PI*2); ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // ── Region name label ──
+    if (phexes.length > 0) {
+      let sq = 0, sr = 0;
+      for (const k of phexes) { const [q,r] = k.split('_').map(Number); sq += q; sr += r; }
+      const cx = sq / phexes.length, cy = sr / phexes.length;
+      const center = hexToPixel(Math.round(cx), Math.round(cy));
+      const fontSize = Math.max(8, Math.min(40, Math.sqrt(phexes.length) * 1.8)) / zoom;
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // Outline for readability
+      ctx.strokeStyle = '#000000cc';
+      ctx.lineWidth = 3 / zoom;
+      ctx.strokeText(region.name, center.x, center.y);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(region.name, center.x, center.y);
+    }
   }
   ctx.restore();
 }

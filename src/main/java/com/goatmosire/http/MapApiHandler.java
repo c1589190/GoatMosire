@@ -395,12 +395,20 @@ public class MapApiHandler implements HttpHandler {
             return;
         }
         String nodeId = params.getOrDefault("node", "n0000");
-        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-        MapData data = MAPPER.readValue(body, MapData.class);
-        mapService.saveFull(worldId, nodeId, data);
-        log.info("Created map for world={} node={}", worldId, nodeId);
-        try { mapService.syncToGSimNode(worldId, nodeId); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
-        sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
+        byte[] raw = exchange.getRequestBody().readAllBytes();
+        if (raw == null || raw.length == 0) {
+            sendError(exchange, 400, "Request body is empty");
+            return;
+        }
+        try {
+            MapData data = MAPPER.readValue(raw, MapData.class);
+            mapService.saveFull(worldId, nodeId, data);
+            log.info("Created map for world={} node={}", worldId, nodeId);
+            try { mapService.syncToGSimNode(worldId, nodeId); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
+            sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
+        } catch (Exception e) {
+            sendError(exchange, 400, "Invalid map data: " + e.getMessage());
+        }
     }
 
     // ── PUT /api/map/{worldId} (save diff or full) ────────

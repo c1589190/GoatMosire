@@ -2,7 +2,6 @@ package com.goatmosire.service;
 
 import com.gsim.map.MapData;
 import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -185,6 +184,7 @@ public class TerrainCanvas {
 
             // ── Phase B: different-terrain → new block wins, carve old ──
             List<Block> newFragments = new ArrayList<>();
+            Set<String> protectedHexes = new HashSet<>(); // max-retention carve-out
             for (Block existing : new ArrayList<>(blocks)) {
                 if (existing.terrain.equals(terrain)) continue;
                 Set<String> es = existing.hexSet(mapRadius);
@@ -193,6 +193,19 @@ public class TerrainCanvas {
                 overlap.retainAll(newSet);
                 if (overlap.isEmpty()) continue;
 
+                if (newSet.containsAll(es)) {
+                    // Existing is entirely covered by the new block
+                    if (didMerge) {
+                        // Override: same-terrain merge encircles different-terrain block → delete it
+                        toRemove.add(existing);
+                    } else {
+                        // Max retention: new block fully covers existing → keep existing, carve from new
+                        protectedHexes.addAll(es);
+                    }
+                    continue;
+                }
+
+                // Partial overlap: carve overlay out of existing, keep remainder as fragments
                 es.removeAll(overlap);
                 toRemove.add(existing);
 
@@ -211,6 +224,9 @@ public class TerrainCanvas {
             blocks.removeAll(toRemove);
             blocks.addAll(newFragments);
             toRemove.clear();
+
+            // Apply max retention: remove protected hexes from new block
+            newSet.removeAll(protectedHexes);
 
             // ── Phase D: add the new block ──
             if (newSet.isEmpty()) return null;

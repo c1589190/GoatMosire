@@ -7,7 +7,10 @@ import java.util.*;
  * Processes terrain blocks: auto-closes boundaries, merges same-terrain,
  * carves holes for different-terrain overlaps. All polygon geometry is
  * handled server-side — frontend only sends raw lasso points.
+ *
+ * @deprecated Replaced by {@link TerrainCanvas}. Retained for reference.
  */
+@Deprecated
 public class TerrainBlockProcessor {
 
     private final int radius;

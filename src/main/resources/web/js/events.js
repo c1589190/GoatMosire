@@ -214,11 +214,8 @@ async function saveMap() {
     mapData.terrainTypes = {...DEFAULT_TERRAINS};
   }
   try {
-    const tags = mapData.tags;
-    const clean = {...mapData};
-    delete clean.tags;
+    const {tags, ...clean} = mapData;    // destructured copy — tags stays on mapData
     await MapAPI.save(clean);
-    mapData.tags = tags;
     saveTags();
     showToast('已保存');
     setStatus('已保存');

@@ -22,12 +22,12 @@ public class MapService {
     private static final int MAX_CACHE_SIZE = 32;
 
     private final Path worldsDir;
-    private final Map<String, MapData> cache = new LinkedHashMap<>() {
+    private final Map<String, MapData> cache = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, MapData> eldest) {
             return size() > MAX_CACHE_SIZE;
         }
-    };
+    });
     private final ConcurrentHashMap<String, TerrainCanvas> canvases = new ConcurrentHashMap<>();
     private final NodeSyncService nodeSyncService;
     private final CheckpointService checkpointService;

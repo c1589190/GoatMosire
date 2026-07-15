@@ -27,6 +27,7 @@ public class McpServer implements Runnable {
     private final MapService mapService;
     private final McpToolRegistry registry;
     private volatile boolean running = true;
+    private volatile InputStream stdin;
 
     public McpServer(MapService mapService) {
         this.mapService = mapService;
@@ -40,6 +41,7 @@ public class McpServer implements Runnable {
 
     public void start() {
         log.info("MCP server starting on stdio...");
+        stdin = System.in;
         try (BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
              PrintWriter out = new PrintWriter(new OutputStreamWriter(System.out), true)) {
 
@@ -72,6 +74,9 @@ public class McpServer implements Runnable {
 
     public void stop() {
         running = false;
+        try {
+            if (stdin != null) stdin.close();
+        } catch (IOException ignored) {}
     }
 
     // ── Handlers ──────────────────────────────────────────
