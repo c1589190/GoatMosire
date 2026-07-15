@@ -15,10 +15,10 @@ mvn package -DskipTests -q
 mvn test
 
 # Start — HTTP :8711 + MCP stdio (default):
-java -Dgoatmosire.worldsDir=/home/cna/GSimulator/worlds -jar target/goatmosire-0.1.0-SNAPSHOT.jar
+java -Dgoatmosire.worldsDir=./worlds -jar target/goatmosire-0.1.0-SNAPSHOT.jar
 
-# Start HTTP-only:
-java -Dgoatmosire.worldsDir=/home/cna/GSimulator/worlds -jar target/goatmosire-0.1.0-SNAPSHOT.jar --http-only
+# Start HTTP-only (worldsDir defaults to ./worlds if not specified):
+java -jar target/goatmosire-0.1.0-SNAPSHOT.jar --http-only
 ```
 
 ## Architecture
@@ -58,7 +58,7 @@ Static files under `src/main/resources/web/`: `index.html` (single-file SPA with
 
 ### Configuration
 
-System properties: `goatmosire.worldsDir` (path to GSimulator/worlds), `goatmosire.port` (default 8711), `goatmosire.httpOnly=true`, `goatmosire.mcpOnly=true`. Env vars: `GOATMOSIRE_WORLDS_DIR`, `GOATMOSIRE_PORT`.
+System properties: `goatmosire.worldsDir` (default `./worlds`), `goatmosire.port` (default 8711), `goatmosire.httpOnly=true`, `goatmosire.mcpOnly=true`. Env vars: `GOATMOSIRE_WORLDS_DIR`, `GOATMOSIRE_PORT`.
 
 ### Design rules
 

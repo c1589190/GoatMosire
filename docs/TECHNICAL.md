@@ -51,8 +51,9 @@ cd GoatMosire
 mvn package -DskipTests -q
 
 # 3. 启动（HTTP 模式，端口 8711）
-java -Dgoatmosire.worldsDir=/home/cna/GSimulator/worlds \
-     -jar target/goatmosire-0.1.0-SNAPSHOT.jar --http-only
+java -jar target/goatmosire-0.1.0-SNAPSHOT.jar --http-only
+# worldsDir 默认为 ./worlds，也可显式指定：
+# java -Dgoatmosire.worldsDir=./worlds -jar ...
 
 # 浏览器访问
 xdg-open http://localhost:8711

@@ -49,6 +49,13 @@ public class McpToolRegistry {
             case "goatmosire_remove_hex_from_region" -> handleRemoveHexFromRegion(args);
             case "goatmosire_create_region" -> handleCreateRegion(args);
             case "goatmosire_delete_region" -> handleDeleteRegion(args);
+            case "goatmosire_list_checkpoints" -> handleListCheckpoints(args);
+            case "goatmosire_get_checkpoint"   -> handleGetCheckpoint(args);
+            case "goatmosire_add_checkpoint_element" -> handleAddCheckpointElement(args);
+            case "goatmosire_update_checkpoint_element" -> handleUpdateCheckpointElement(args);
+            case "goatmosire_delete_checkpoint_element" -> handleDeleteCheckpointElement(args);
+            case "goatmosire_rename_region" -> handleRenameRegion(args);
+            case "goatmosire_init_nation" -> handleInitNation(args);
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
     }
@@ -208,6 +215,93 @@ public class McpToolRegistry {
               "nodeId":{"type":"string"},
               "name":{"type":"string","description":"Region name to delete"}
             },"required":["worldId","name"]}""");
+
+        // ── Checkpoint (document) tools ───────────────────
+
+        register("goatmosire_list_checkpoints",
+            "List all checkpoints in a GSim node (narrative, factions, worldview, characters, map). Returns name, label, type, and element count for each.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string","description":"Node ID (optional, defaults to active node)"}
+            },"required":["worldId"]}""");
+
+        register("goatmosire_get_checkpoint",
+            "Get elements from a GSim checkpoint. Optionally filter by element key or tags. Use this to read narrative entries, faction descriptions, worldview docs, or character states.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "checkpoint":{"type":"string","description":"Checkpoint name: narrative, factions, worldview, characters, map"},
+              "key":{"type":"string","description":"Filter by specific element key (optional)"},
+              "tags":{"type":"array","items":{"type":"string"},"description":"Filter by tags — element must have ALL specified tags (optional)"}
+            },"required":["worldId","checkpoint"]}""");
+
+        register("goatmosire_add_checkpoint_element",
+            "Add a new element to a GSim checkpoint. Use to create narrative entries, faction descriptions, character states, or worldview documents.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "checkpoint":{"type":"string","description":"Checkpoint name: narrative, factions, worldview, characters, map"},
+              "key":{"type":"string","description":"Unique element key (e.g. '大汉开局')"},
+              "type":{"type":"string","description":"Element type: text, character_state, map-region, map-city (default: text)"},
+              "value":{"type":"string","description":"Full text content of the element"},
+              "tags":{"type":"array","items":{"type":"string"},"description":"Tags for categorization and filtering (e.g. ['开局','大汉','推文'])"}
+            },"required":["worldId","checkpoint","key","value"]}""");
+
+        register("goatmosire_update_checkpoint_element",
+            "Update an existing element in a GSim checkpoint. Only provided fields are changed.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "checkpoint":{"type":"string","description":"Checkpoint name"},
+              "key":{"type":"string","description":"Element key to update"},
+              "value":{"type":"string","description":"New text content (optional)"},
+              "type":{"type":"string","description":"New element type (optional)"},
+              "tags":{"type":"array","items":{"type":"string"},"description":"New tags list (optional, replaces all existing tags)"}
+            },"required":["worldId","checkpoint","key"]}""");
+
+        register("goatmosire_delete_checkpoint_element",
+            "Delete an element from a GSim checkpoint by key.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "checkpoint":{"type":"string","description":"Checkpoint name"},
+              "key":{"type":"string","description":"Element key to delete"}
+            },"required":["worldId","checkpoint","key"]}""");
+
+        register("goatmosire_rename_region",
+            "Rename a region across all data stores: MapData provinces + all GSim checkpoint references (factions, narrative, map, etc.). Updates keys, tags, and text references. Auto-saves.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "oldName":{"type":"string","description":"Current region name"},
+              "newName":{"type":"string","description":"New region name"}
+            },"required":["worldId","oldName","newName"]}""");
+
+        register("goatmosire_init_nation",
+            "One-shot nation initialization: flood-fill unowned hexes from a seed, create the MapData province, sync to GSim map checkpoint, and optionally write faction/narrative/worldview checkpoint entries and a capital city. Use this to bootstrap countries in unexplored territory.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "name":{"type":"string","description":"Nation/province name"},
+              "seedQ":{"type":"integer","description":"Seed hex q (flood-fill start point)"},
+              "seedR":{"type":"integer","description":"Seed hex r"},
+              "maxHexes":{"type":"integer","description":"Max hexes to collect (default 1000)"},
+              "tag":{"type":"string","description":"Region tag (default: 'Nation')"},
+              "color":{"type":"string","description":"Region color hex (default: auto-generated)"},
+              "faction":{"type":"string","description":"Faction description text → factions checkpoint"},
+              "narrative":{"type":"string","description":"Opening narrative text → narrative checkpoint"},
+              "worldview":{"type":"string","description":"Worldview text → worldview checkpoint (optional)"},
+              "capital":{"type":"string","description":"Capital city name → creates city element in map checkpoint"},
+              "ruler":{"type":"string","description":"Ruler name (optional, appended to faction tags)"},
+              "religion":{"type":"string","description":"Religion (optional, appended to faction tags)"}
+            },"required":["worldId","name","seedQ","seedR"]}""");
 
     }
 
@@ -661,6 +755,196 @@ public class McpToolRegistry {
         mapService.syncToGSimNode(worldId, nodeId);
 
         return toJson(Map.of("ok", true, "name", name, "action", "deleted"));
+    }
+
+    // ── Checkpoint tools ──────────────────────────────────
+
+    private String handleListCheckpoints(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        return toJson(mapService.getCheckpointService().listCheckpoints(worldId, nodeId));
+    }
+
+    private String handleGetCheckpoint(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        String cp = args.get("checkpoint").asText();
+        String key = args.has("key") ? args.get("key").asText() : null;
+        List<String> tags = null;
+        if (args.has("tags") && args.get("tags").isArray()) {
+            tags = new ArrayList<>();
+            for (JsonNode t : args.get("tags")) tags.add(t.asText());
+        }
+        return toJson(mapService.getCheckpointService().getCheckpoint(worldId, nodeId, cp, key, tags));
+    }
+
+    private String handleAddCheckpointElement(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        String cp = args.get("checkpoint").asText();
+        String key = args.get("key").asText();
+        String value = args.get("value").asText();
+        String type = args.has("type") ? args.get("type").asText() : "text";
+        List<String> tags = null;
+        if (args.has("tags") && args.get("tags").isArray()) {
+            tags = new ArrayList<>();
+            for (JsonNode t : args.get("tags")) tags.add(t.asText());
+        }
+        return toJson(mapService.getCheckpointService().addElement(worldId, nodeId, cp, key, type, value, tags));
+    }
+
+    private String handleUpdateCheckpointElement(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        String cp = args.get("checkpoint").asText();
+        String key = args.get("key").asText();
+        String value = args.has("value") ? args.get("value").asText() : null;
+        String type = args.has("type") ? args.get("type").asText() : null;
+        List<String> tags = null;
+        if (args.has("tags") && args.get("tags").isArray()) {
+            tags = new ArrayList<>();
+            for (JsonNode t : args.get("tags")) tags.add(t.asText());
+        }
+        return toJson(mapService.getCheckpointService().updateElement(worldId, nodeId, cp, key, value, type, tags));
+    }
+
+    private String handleDeleteCheckpointElement(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        String cp = args.get("checkpoint").asText();
+        String key = args.get("key").asText();
+        return toJson(mapService.getCheckpointService().deleteElement(worldId, nodeId, cp, key));
+    }
+
+    private String handleRenameRegion(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        String oldName = args.get("oldName").asText();
+        String newName = args.get("newName").asText();
+        return toJson(mapService.renameRegion(worldId, nodeId, oldName, newName));
+    }
+
+    private String handleInitNation(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
+        if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
+        String name = args.get("name").asText();
+        int seedQ = args.get("seedQ").asInt();
+        int seedR = args.get("seedR").asInt();
+        int maxHexes = args.has("maxHexes") ? args.get("maxHexes").asInt() : 1000;
+
+        MapData map = mapService.resolve(worldId, nodeId);
+        if (map.provinces().containsKey(name))
+            return toJson(Map.of("ok", false, "error", "Region already exists: " + name));
+
+        String seedKey = MapData.hexKey(seedQ, seedR);
+        if (!map.hexes().containsKey(seedKey))
+            return toJson(Map.of("ok", false, "error", "Seed hex not on map: " + seedKey));
+
+        // Build owned hex set
+        Set<String> owned = new HashSet<>();
+        for (var p : map.provinces().values()) owned.addAll(p.hexes());
+        if (owned.contains(seedKey))
+            return toJson(Map.of("ok", false, "error", "Seed hex already owned"));
+
+        // ── 1. Flood-fill unowned hexes ──
+        Set<String> collected = new LinkedHashSet<>();
+        var queue = new ArrayDeque<String>();
+        queue.add(seedKey);
+        collected.add(seedKey);
+        while (!queue.isEmpty() && collected.size() < maxHexes) {
+            String cur = queue.poll();
+            int[] qr = MapData.parseHexKey(cur);
+            for (int[] d : DIRS) {
+                String nk = MapData.hexKey(qr[0] + d[0], qr[1] + d[1]);
+                if (map.hexes().containsKey(nk) && !owned.contains(nk) && collected.add(nk)) {
+                    queue.add(nk);
+                }
+            }
+        }
+        if (collected.isEmpty())
+            return toJson(Map.of("ok", false, "error", "No unowned hexes reachable from seed"));
+
+        // ── 2. Create province ──
+        String tag = args.has("tag") ? args.get("tag").asText() : "Nation";
+        String color = args.has("color") ? args.get("color").asText()
+            : String.format("#%06x", new java.util.Random().nextInt(0xFFFFFF) | 0x404040);
+        List<String> hexList = new ArrayList<>(collected);
+
+        Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
+        updatedProvinces.put(name, new MapData.Province(hexList, color, tag, ""));
+        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), updatedProvinces, map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes());
+        mapService.saveFull(worldId, nodeId, updated);
+        mapService.syncToGSimNode(worldId, nodeId);
+
+        // ── 3. Build tags for checkpoint elements ──
+        List<String> tags = new ArrayList<>(List.of("Nation", name));
+        if (args.has("ruler") && !args.get("ruler").asText().isBlank())
+            tags.add(args.get("ruler").asText());
+        if (args.has("religion") && !args.get("religion").asText().isBlank())
+            tags.add(args.get("religion").asText());
+
+        var cp = mapService.getCheckpointService();
+        List<String> created = new ArrayList<>();
+
+        // ── 4. Faction checkpoint ──
+        if (args.has("faction") && !args.get("faction").asText().isBlank()) {
+            cp.addElement(worldId, nodeId, "factions", name, "text",
+                args.get("faction").asText(), tags);
+            created.add("factions:" + name);
+        }
+
+        // ── 5. Narrative checkpoint ──
+        if (args.has("narrative") && !args.get("narrative").asText().isBlank()) {
+            cp.addElement(worldId, nodeId, "narrative", name + "开局", "text",
+                args.get("narrative").asText(), tags);
+            created.add("narrative:" + name + "开局");
+        }
+
+        // ── 6. Worldview checkpoint ──
+        if (args.has("worldview") && !args.get("worldview").asText().isBlank()) {
+            cp.addElement(worldId, nodeId, "worldview", name + "世界观", "text",
+                args.get("worldview").asText(), tags);
+            created.add("worldview:" + name + "世界观");
+        }
+
+        // ── 7. Capital city ──
+        if (args.has("capital") && !args.get("capital").asText().isBlank()) {
+            String capitalName = args.get("capital").asText();
+            String cityValue = "名称: " + capitalName + "\n类型: 首都\n所属: " + name +
+                "\n描述: " + (args.has("faction") ? args.get("faction").asText().split("\n")[0] : "");
+            cp.addElement(worldId, nodeId, "map", "City:" + capitalName, "map-city",
+                cityValue, List.of("首都", name, capitalName));
+            created.add("map:City:" + capitalName);
+        }
+
+        // ── 8. Compute center ──
+        int sq = 0, sr = 0;
+        for (String hk : hexList) { int[] qr = MapData.parseHexKey(hk); sq += qr[0]; sr += qr[1]; }
+
+        log.info("init_nation '{}': {} hexes, {} checkpoint entries created", name, hexList.size(), created.size());
+        return toJson(Map.of("ok", true, "name", name, "hexCount", hexList.size(),
+            "tag", tag, "color", color,
+            "center", Map.of("q", Math.round((float)sq/hexList.size()), "r", Math.round((float)sr/hexList.size())),
+            "checkpointsCreated", created));
+    }
+
+    /** Read the active node ID from active.json. */
+    private String readActiveNodeId(String worldId) {
+        try {
+            var file = mapService.getWorldsDir().resolve(worldId).resolve("active.json");
+            if (!java.nio.file.Files.exists(file)) return null;
+            var node = MAPPER.readTree(file.toFile());
+            return node.has("nodeId") ? node.get("nodeId").asText() : null;
+        } catch (Exception e) { return null; }
     }
 
     private static String toJson(Object obj) throws Exception {

@@ -30,16 +30,19 @@ public class MapService {
     };
     private final ConcurrentHashMap<String, TerrainCanvas> canvases = new ConcurrentHashMap<>();
     private final NodeSyncService nodeSyncService;
+    private final CheckpointService checkpointService;
 
     public MapService(Path worldsDir) {
         this.worldsDir = worldsDir;
         this.nodeSyncService = new NodeSyncService(worldsDir);
+        this.checkpointService = new CheckpointService(worldsDir);
         if (!Files.isDirectory(worldsDir)) {
             log.warn("Worlds directory does not exist: {}", worldsDir);
         }
     }
 
     public Path getWorldsDir() { return worldsDir; }
+    public CheckpointService getCheckpointService() { return checkpointService; }
 
     // ── Query ────────────────────────────────────────────
 
@@ -367,6 +370,46 @@ public class MapService {
     }
 
     // ── Cache ─────────────────────────────────────────────
+
+    // ── Region Rename ──────────────────────────────────────
+
+    /** Rename a region across all data stores: MapData + GSim node checkpoints. */
+    public Map<String, Object> renameRegion(String worldId, String nodeId, String oldName, String newName) {
+        if (oldName == null || newName == null || oldName.equals(newName))
+            return Map.of("ok", false, "error", "Invalid names");
+        if (newName.isBlank())
+            return Map.of("ok", false, "error", "New name must not be blank");
+
+        MapData map = resolve(worldId, nodeId);
+        if (map == null || !map.provinces().containsKey(oldName))
+            return Map.of("ok", false, "error", "Region not found: " + oldName);
+        if (map.provinces().containsKey(newName))
+            return Map.of("ok", false, "error", "Region already exists: " + newName);
+
+        // 1. Rename province in MapData
+        Map<String, MapData.Province> updated = new LinkedHashMap<>();
+        for (var e : map.provinces().entrySet()) {
+            if (e.getKey().equals(oldName)) updated.put(newName, e.getValue());
+            else updated.put(e.getKey(), e.getValue());
+        }
+        MapData newMap = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), updated, map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes());
+        saveFull(worldId, nodeId, newMap);
+
+        // 2. Update checkpoint references in node JSON
+        try {
+            checkpointService.renameReferences(worldId, nodeId, oldName, newName);
+        } catch (Exception ex) {
+            log.warn("Checkpoint rename partially failed: {}", ex.getMessage());
+        }
+
+        // 3. Re-sync map checkpoint with new name
+        syncToGSimNode(worldId, nodeId);
+
+        log.info("Renamed region '{}' -> '{}' in world={} node={}", oldName, newName, worldId, nodeId);
+        return Map.of("ok", true, "oldName", oldName, "newName", newName);
+    }
 
     // ── GSim Node Sync ────────────────────────────────────
 

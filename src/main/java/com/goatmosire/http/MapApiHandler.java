@@ -76,6 +76,10 @@ public class MapApiHandler implements HttpHandler {
                 handleBlocks(exchange, sub, params);
             } else if (sub.endsWith("/query-terrain")) {
                 handleQueryTerrain(exchange, sub, params);
+            } else if (sub.endsWith("/rename-region")) {
+                handleRenameRegion(exchange, sub, params);
+            } else if (sub.endsWith("/latest-texts")) {
+                handleLatestTexts(exchange, sub, params);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -152,6 +156,61 @@ public class MapApiHandler implements HttpHandler {
         String worldId = sub.substring(1, sub.indexOf("/nodes"));
         List<Map<String, Object>> nodes = mapService.listNodes(worldId);
         sendJson(exchange, 200, Map.of("worldId", worldId, "nodes", nodes));
+    }
+
+    // ── GET /api/map/{worldId}/checkpoints?node={n} ─────
+
+    // ── GET /api/map/{worldId}/latest-texts ─────────────
+
+    private void handleLatestTexts(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/latest-texts"));
+        String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        try {
+            var file = mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
+            if (!java.nio.file.Files.exists(file)) {
+                sendError(exchange, 404, "Node not found: " + nodeId);
+                return;
+            }
+            var node = MAPPER.readTree(file.toFile());
+            var cps = node.get("checkpoints");
+            List<Map<String, Object>> texts = new ArrayList<>();
+
+            // Collect last 3 from narrative and factions, sorted by updatedAt
+            for (String cpName : new String[]{"narrative", "factions"}) {
+                if (cps != null && cps.has(cpName)) {
+                    var elements = cps.get(cpName).get("elements");
+                    if (elements != null && elements.isArray()) {
+                        for (var el : elements) {
+                            Map<String, Object> item = new LinkedHashMap<>();
+                            item.put("checkpoint", cpName);
+                            item.put("key", el.get("key").asText());
+                            item.put("value", el.get("value").asText());
+                            if (el.has("tags") && el.get("tags").isArray()) {
+                                List<String> tags = new ArrayList<>();
+                                for (var t : el.get("tags")) tags.add(t.asText());
+                                item.put("tags", tags);
+                            }
+                            item.put("updatedAt", el.has("updatedAt") ? el.get("updatedAt").asText() : "");
+                            texts.add(item);
+                        }
+                    }
+                }
+            }
+
+            // Sort by updatedAt descending, take last 8
+            texts.sort((a, b) -> String.valueOf(b.getOrDefault("updatedAt", ""))
+                .compareTo(String.valueOf(a.getOrDefault("updatedAt", ""))));
+            if (texts.size() > 8) texts = texts.subList(0, 8);
+
+            sendJson(exchange, 200, Map.of("worldId", worldId, "nodeId", nodeId, "texts", texts));
+        } catch (Exception e) {
+            log.error("Failed to read latest texts", e);
+            sendError(exchange, 500, "Failed: " + e.getMessage());
+        }
     }
 
     // ── GET /api/map/{worldId}/river-path?q=&r=&node= ────
@@ -291,6 +350,31 @@ public class MapApiHandler implements HttpHandler {
             }
             default -> sendError(exchange, 405, "Method not allowed: " + method);
         }
+    }
+
+    // ── POST /api/map/{worldId}/rename-region ─────────────
+
+    private void handleRenameRegion(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed, use POST");
+            return;
+        }
+        String worldId = sub.substring(1, sub.indexOf("/rename-region"));
+        String nodeId = readActiveNodeId(worldId);
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        var body = MAPPER.readTree(exchange.getRequestBody());
+        String oldName = body.get("oldName").asText();
+        String newName = body.get("newName").asText();
+        if (oldName == null || newName == null) {
+            sendError(exchange, 400, "Missing oldName or newName");
+            return;
+        }
+        var result = mapService.renameRegion(worldId, nodeId, oldName, newName);
+        int status = Boolean.TRUE.equals(result.get("ok")) ? 200 : 400;
+        sendJson(exchange, status, result);
     }
 
     // ── GET /api/map/{worldId}/query-terrain?q=&r= ────────
