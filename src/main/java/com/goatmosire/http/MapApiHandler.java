@@ -573,8 +573,12 @@ public class MapApiHandler implements HttpHandler {
             } else {
                 MapData data = MAPPER.readValue(body, MapData.class);
                 if (isRootNode(worldId, nodeId)) {
-                    // Root node: save full map
+                    // Root node: save full map, preserve compressed regions
+                    var existingCR = mapService.loadCompressedRegions(worldId, nodeId);
                     mapService.saveFull(worldId, nodeId, data);
+                    if (!existingCR.isEmpty()) {
+                        mapService.saveCompressedRegions(worldId, nodeId, existingCR);
+                    }
                     log.info("Saved full map for root node world={} node={}", worldId, nodeId);
                 } else {
                     // Child node: auto-compute diff vs parent's resolved map

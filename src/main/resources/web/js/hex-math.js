@@ -69,9 +69,3 @@ function direction(fromQ, fromR, toQ, toR) {
   }
   return -1;
 }
-
-// ── Unified hex existence check (individual + compressed) ──
-function hexExists(key) {
-  if (mapData?.hexes?.[key]) return true;
-  return window._compressedHexSet?.has(key) || false;
-}

@@ -29,30 +29,50 @@ function render() {
   }
   let drawn = 0;
 
-  const byColor = {};
+  // ── Helper: draw a batch of hexes ──
+  function drawHexBatch(hexesByColor) {
+    for (const [color, hexes] of Object.entries(hexesByColor)) {
+      ctx.fillStyle = color;
+      for (const {x, y} of hexes) {
+        ctx.beginPath();
+        const corners = hexCorners(x, y, GRID - 1);
+        ctx.moveTo(corners[0][0], corners[0][1]);
+        for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+  }
 
-  // ── Compressed regions → individual hex fills ──
+  ctx.strokeStyle = '#ffffff18';
+  ctx.lineWidth = 0.5 / zoom;
+
+  // ── Pass 1: Compressed regions (background layer) ──
+  const crByColor = {};
   for (const cr of (mapData.compressedRegions || [])) {
     if (!cr.hexKeys || cr.hexKeys.length === 0) continue;
     const color = cr.color || getTerrainColor(cr.terrain);
-    if (!byColor[color]) byColor[color] = [];
+    if (!crByColor[color]) crByColor[color] = [];
     for (const key of cr.hexKeys) {
       const [q, r] = key.split('_').map(Number);
       const {x, y} = hexToPixel(q, r);
       if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
-      byColor[color].push({x, y, compressed: true});
+      crByColor[color].push({x, y});
       drawn++;
     }
   }
+  drawHexBatch(crByColor);
 
-  // ── Individual hexes ──
+  // ── Pass 2: Individual hexes (on top, override compressed) ──
+  const indByColor = {};
   for (const [key, cell] of entries) {
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
     if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
     const color = resolveTerrainColor(q, r, cell);
-    if (!byColor[color]) byColor[color] = [];
-    byColor[color].push({x, y, compressed: false});
+    if (!indByColor[color]) indByColor[color] = [];
+    indByColor[color].push({x, y});
     drawn++;
   }
 
@@ -69,8 +89,8 @@ function render() {
         for (let i = blocks.length - 1; i >= 0; i--) {
           if (pointInPolygon(hx, hy, blocks[i].boundary)) {
             const color = getTerrainColor(blocks[i].terrain);
-            if (!byColor[color]) byColor[color] = [];
-            byColor[color].push({x: hx, y: hy});
+            if (!indByColor[color]) indByColor[color] = [];
+            indByColor[color].push({x: hx, y: hy});
             drawn++;
             break;
           }
@@ -78,36 +98,49 @@ function render() {
       }
     }
   }
-
-  for (const [color, hexes] of Object.entries(byColor)) {
-    for (const h of hexes) {
-      const corners = hexCorners(h.x, h.y, GRID - 1);
-      ctx.beginPath();
-      ctx.moveTo(corners[0][0], corners[0][1]);
-      for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-      ctx.closePath();
-      if (h.compressed) {
-        // Compressed: fill only, slightly lighter, no grid
-        ctx.fillStyle = color + 'cc';
-        ctx.fill();
-      } else {
-        // Individual: fill + visible grid lines
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff30';
-        ctx.lineWidth = 1.0 / zoom;
-        ctx.stroke();
-      }
-    }
-  }
+  drawHexBatch(indByColor);
 
   if (hexCount > 1000) {
     setStatus(`渲染: ${drawn}/${hexCount} hex (${(100*drawn/hexCount)|0}%)`);
   }
 
   ctx.restore();
+  renderCompressedRegionBorder();
   renderRivers();
   renderProvinceHighlight();
+}
+
+function renderCompressedRegionBorder() {
+  if (!selectedCompressedRegion || !mapData._compressedById) return;
+  const cr = mapData._compressedById.get(selectedCompressedRegion);
+  if (!cr || !cr.hexKeys) return;
+
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(zoom, zoom);
+  const invZ = 1/zoom;
+  const vl = -offX * invZ, vt = -offY * invZ;
+  const vr = vl + canvas.width * invZ, vb = vt + canvas.height * invZ;
+
+  ctx.strokeStyle = (cr.color || '#FFD700') + 'cc';
+  ctx.lineWidth = 4 / zoom;
+  for (const key of cr.hexKeys) {
+    const [q, r] = key.split('_').map(Number);
+    const {x, y} = hexToPixel(q, r);
+    if (x < vl || x > vr || y < vt || y > vb) continue;
+    let isEdge = false;
+    for (const [dq, dr] of DIR_VECTORS) {
+      if (!cr.hexKeys.has((q+dq)+'_'+(r+dr))) { isEdge = true; break; }
+    }
+    if (!isEdge) continue;
+    ctx.beginPath();
+    const corners = hexCorners(x, y, GRID - 1);
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function resizeCanvas() {
@@ -188,6 +221,26 @@ function renderProvinceHighlight() {
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(vl, vt, vr - vl, vb - vt);
 
+  // Redraw compressed region hexes on top of dim (background terrain)
+  const crs = mapData.compressedRegions || [];
+  if (crs.length > 0) {
+    for (const cr of crs) {
+      if (!cr.hexKeys || cr.hexKeys.length === 0) continue;
+      ctx.fillStyle = cr.color || getTerrainColor(cr.terrain);
+      for (const key of cr.hexKeys) {
+        const [q, r] = key.split('_').map(Number);
+        const {x, y} = hexToPixel(q, r);
+        if (x < vl || x > vr || y < vt || y > vb) continue;
+        ctx.beginPath();
+        const corners = hexCorners(x, y, GRID - 1);
+        ctx.moveTo(corners[0][0], corners[0][1]);
+        for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
   for (const region of toRender) {
     const phexes = region.hexes || [];
     if (!phexes.length) continue;
@@ -245,6 +298,7 @@ function renderProvinceHighlight() {
       ctx.fillText(region.name, center.x, center.y);
     }
   }
+
   ctx.restore();
 }
 

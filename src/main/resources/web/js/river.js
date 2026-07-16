@@ -1,7 +1,7 @@
 // ── River Tool ─────────────────────────────────────────
 let riverStart = null;
 
-async function addRiverWaypoint(q, r) {
+function addRiverWaypoint(q, r) {
   if (!riverStart) {
     riverStart = {q, r};
     setStatus(`河流起点: (${q},${r}) — 请点击相邻格子，或再次点击此处取消`);
@@ -21,13 +21,6 @@ async function addRiverWaypoint(q, r) {
     return;
   }
   const ak = `${riverStart.q}_${riverStart.r}`, bk = `${q}_${r}`;
-  // Decompress any compressed hexes before writing river data
-  for (const k of [ak, bk]) {
-    if (!mapData.hexes[k] && window._compressedHexSet?.has(k)) {
-      const [hq, hr] = k.split('_').map(Number);
-      await decompressRegionAt(hq, hr);
-    }
-  }
   if (!mapData.hexes[ak]) mapData.hexes[ak] = {color:'#6CC261',terrain:'plains',riverMask:0};
   if (!mapData.hexes[bk]) mapData.hexes[bk] = {color:'#6CC261',terrain:'plains',riverMask:0};
   mapData.hexes[ak].riverMask = (mapData.hexes[ak].riverMask || 0) | (1 << d);

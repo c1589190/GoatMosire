@@ -23,6 +23,7 @@ let tool = 'pen';
 let selectedProvince = null;
 let activeTag = null;
 let clickHex = null;
+let selectedCompressedRegion = null;  // region id selected for border highlight
 
 let provinceLasso = [];
 let relassoTarget = null;

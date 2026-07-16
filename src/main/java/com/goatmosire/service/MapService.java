@@ -49,10 +49,42 @@ public class MapService {
     /** Resolve the full map for a given world + node. */
     public MapData resolve(String worldId, String nodeId) {
         String key = cacheKey(worldId, nodeId);
-        return cache.computeIfAbsent(key, k -> {
-            log.debug("Cache miss for {}, resolving...", k);
-            return MapResolver.resolve(worldsDir, worldId, nodeId);
-        });
+        return cache.computeIfAbsent(key, k -> loadMapData(worldId, nodeId));
+    }
+
+    /** Load MapData, stripping compressedRegions from JSON before gsim-core parsing. */
+    private MapData loadMapData(String worldId, String nodeId) {
+        // Root node: load directly, handling embedded compressedRegions
+        if (isRootNode(worldId, nodeId)) {
+            Path mapFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
+            if (Files.exists(mapFile)) {
+                try {
+                    var tree = MAPPER.readTree(mapFile.toFile());
+                    if (tree.has("compressedRegions")) {
+                        ((com.fasterxml.jackson.databind.node.ObjectNode) tree).remove("compressedRegions");
+                    }
+                    return MAPPER.treeToValue(tree, MapData.class);
+                } catch (Exception e) {
+                    log.error("Failed to load map for {}/{}", worldId, nodeId, e);
+                }
+            }
+            return MapData.empty();
+        }
+        // Child node: use gsim-core MapResolver for diff chain
+        return MapResolver.resolve(worldsDir, worldId, nodeId);
+    }
+
+    private boolean isRootNode(String worldId, String nodeId) {
+        Path nodeFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
+        if (!Files.exists(nodeFile)) return true;
+        try {
+            var node = MAPPER.readTree(nodeFile.toFile());
+            if (node.has("parentId") && !node.get("parentId").isNull()) {
+                String pid = node.get("parentId").asText();
+                return pid.isBlank();
+            }
+        } catch (Exception e) { /* fall through */ }
+        return true;
     }
 
     /** Get map for the active node of a world. */
@@ -162,9 +194,28 @@ public class MapService {
 
     // ── Mutation ──────────────────────────────────────────
 
-    /** Save a full map (for root nodes or initial setup). */
+    /** Save a full map with compressed regions embedded in the map JSON. */
     public void saveFull(String worldId, String nodeId, MapData data) {
-        MapStore.saveFull(worldsDir, worldId, nodeId, data);
+        saveFull(worldId, nodeId, data, null);
+    }
+
+    public void saveFull(String worldId, String nodeId, MapData data,
+                         List<CompressedRegion> compressedRegions) {
+        try {
+            Path file = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
+            Files.createDirectories(file.getParent());
+            var tree = MAPPER.valueToTree(data);
+            if (compressedRegions != null && !compressedRegions.isEmpty()) {
+                tree = ((com.fasterxml.jackson.databind.node.ObjectNode) tree)
+                    .set("compressedRegions", MAPPER.valueToTree(compressedRegions));
+            }
+            MAPPER.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), tree);
+            // Clean up legacy separate compressed file
+            Path legacy = compressedFile(worldId, nodeId);
+            if (Files.exists(legacy)) Files.delete(legacy);
+        } catch (IOException e) {
+            log.error("Failed to save map for {}/{}", worldId, nodeId, e);
+        }
         evict(worldId, nodeId);
     }
 
@@ -537,9 +588,21 @@ public class MapService {
         return worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_compressed.json");
     }
 
-    /** Load compressed regions for a node. */
+    /** Load compressed regions for a node (from embedded map JSON or legacy file). */
     @SuppressWarnings("unchecked")
     public List<CompressedRegion> loadCompressedRegions(String worldId, String nodeId) {
+        // Try embedded in map JSON first
+        Path mapFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
+        if (Files.exists(mapFile)) {
+            try {
+                var tree = MAPPER.readTree(mapFile.toFile());
+                if (tree.has("compressedRegions")) {
+                    return MAPPER.readValue(tree.get("compressedRegions").traverse(),
+                        MAPPER.getTypeFactory().constructCollectionType(List.class, CompressedRegion.class));
+                }
+            } catch (Exception e) { /* fall through to legacy */ }
+        }
+        // Legacy separate file
         Path file = compressedFile(worldId, nodeId);
         if (!Files.exists(file)) return new ArrayList<>();
         try {
@@ -550,12 +613,21 @@ public class MapService {
         }
     }
 
-    /** Save compressed regions to separate file. */
+    /** Save compressed regions embedded in the map JSON. */
     public void saveCompressedRegions(String worldId, String nodeId, List<CompressedRegion> regions) {
+        Path mapFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
+        if (!Files.exists(mapFile)) return;
         try {
-            Path file = compressedFile(worldId, nodeId);
-            Files.createDirectories(file.getParent());
-            MAPPER.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), regions);
+            var tree = (com.fasterxml.jackson.databind.node.ObjectNode) MAPPER.readTree(mapFile.toFile());
+            if (regions.isEmpty()) {
+                tree.remove("compressedRegions");
+            } else {
+                tree.set("compressedRegions", MAPPER.valueToTree(regions));
+            }
+            MAPPER.writerWithDefaultPrettyPrinter().writeValue(mapFile.toFile(), tree);
+            // Clean up legacy
+            Path legacy = compressedFile(worldId, nodeId);
+            if (Files.exists(legacy)) Files.delete(legacy);
         } catch (Exception e) {
             log.error("Failed to save compressed regions", e);
         }

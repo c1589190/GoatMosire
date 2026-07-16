@@ -27,19 +27,7 @@ function setStatus(msg) { document.getElementById('statusBar').textContent = msg
 // ── Info Panel ──────────────────────────────────────────
 function showHexDetail(q, r) {
   const key = `${q}_${r}`;
-  let cell = (mapData?.hexes || {})[key];
-
-  // Check compressed region if hex not found individually
-  let compressedInfo = null;
-  if (!cell) {
-    for (const cr of (mapData.compressedRegions || [])) {
-      if (cr._hexSet?.has(key) || cr.hexKeys?.includes(key)) {
-        compressedInfo = cr;
-        cell = {terrain: cr.terrain, color: cr.color, description: '', riverMask: 0};
-        break;
-      }
-    }
-  }
+  const cell = (mapData?.hexes || {})[key];
 
   const body = document.getElementById('leftBody');
   const title = document.getElementById('leftTitle');
@@ -49,13 +37,19 @@ function showHexDetail(q, r) {
     return;
   }
 
+  // Check if this hex belongs to a compressed region
+  const compMeta = mapData._compressedMeta?.get(key);
+  const compLabel = compMeta
+    ? ` <span style="font-size:10px;color:var(--accent);background:#333;padding:1px 6px;border-radius:3px">压缩区域 · ${compMeta.terrain} ×${compMeta.size}格</span>`
+    : '';
+
   let provName = '';
   for (const [pname, prov] of Object.entries(mapData.provinces || {})) {
     if (prov.hexes?.includes(key)) { provName = pname; break; }
   }
 
   const tt = terrainTypes[cell.terrain] || {};
-  title.textContent = `📍 (${q}, ${r})${compressedInfo ? ' [压缩区域]' : ''}`;
+  title.innerHTML = `📍 (${q}, ${r})${compLabel}`;
   document.getElementById('leftPanel').style.display = 'block';
 
   body.innerHTML = `

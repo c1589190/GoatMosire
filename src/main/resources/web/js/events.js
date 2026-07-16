@@ -9,14 +9,6 @@ canvas.addEventListener('mousedown', e => {
       return;
     }
     if (tool === 'river') return;
-    // Check if clicking on a compressed region
-    if (tool !== 'eraser') {
-      const h = getHexAtEvent(e);
-      if (h && findCompressedRegionAt(h.q, h.r)) {
-        decompressRegionAt(h.q, h.r);
-        return;
-      }
-    }
     mouseDown = true;
     clickHex = getHexAtEvent(e);
     if (clickHex) applyTool(clickHex.q, clickHex.r);
@@ -60,7 +52,7 @@ canvas.addEventListener('mousemove', e => {
       const oldKey = `${dragPoint.q}_${dragPoint.r}`;
       const p = mapData.provinces[selectedProvince];
       if (p?.hexes) {
-        if (!p.hexes.includes(newKey) && hexExists(newKey)) p.hexes.push(newKey);
+        if (!p.hexes.includes(newKey) && mapData.hexes[newKey]) p.hexes.push(newKey);
         else if (p.hexes.includes(newKey) && newKey !== oldKey) p.hexes = p.hexes.filter(k => k !== oldKey);
         dragPoint = {q: h.q, r: h.r};
         canvas._boundaryCache = null;
@@ -77,13 +69,7 @@ canvas.addEventListener('mousemove', e => {
     tooltip.style.left = (e.clientX + 15) + 'px';
     tooltip.style.top = (e.clientY - 20) + 'px';
     const key = `${h.q}_${h.r}`;
-    let cell = (mapData?.hexes || {})[key];
-    // Check compressed region if hex not found individually
-    if (!cell) {
-      for (const cr of (mapData.compressedRegions || [])) {
-        if (cr._hexSet && cr._hexSet.has(key)) { cell = {terrain: cr.terrain, color: cr.color}; break; }
-      }
-    }
+    const cell = (mapData?.hexes || {})[key];
     const tn = cell?.terrain || 'empty';
     const tt = terrainTypes[tn];
     tooltip.textContent = `(${h.q},${h.r}) ${tn}` + (tt ? ` \u{1F56F}${tt.food} \u{1F4B0}${tt.gold} \u{1FAA8}${tt.stone}` : '');
@@ -94,45 +80,6 @@ canvas.addEventListener('mousemove', e => {
     }
   } else { tooltip.style.display = 'none'; canvas.style.cursor = ''; }
 });
-
-// ── Compressed region detection ──
-function findCompressedRegionAt(q, r) {
-  const key = `${q}_${r}`;
-  // Already an individual hex → not compressed
-  if (mapData.hexes && mapData.hexes[key]) return null;
-  const compressed = mapData.compressedRegions || [];
-  if (!compressed.length) return null;
-  for (const cr of compressed) {
-    if (cr._hexSet && cr._hexSet.has(key)) return cr;
-    if (cr.hexKeys && cr.hexKeys.includes(key)) return cr;
-  }
-  return null;
-}
-
-async function decompressRegionAt(q, r) {
-  const cr = findCompressedRegionAt(q, r);
-  if (!cr) return false;
-  const confirmed = confirm(
-    `此区域为压缩存储\n\n` +
-    `地形: ${cr.terrain}\n` +
-    `大小: ${cr.size} 格\n` +
-    (cr.isWater ? '水域\n\n' : '\n') +
-    `解压后可编辑。是否解压？`
-  );
-  if (!confirmed) return false;
-  try {
-    const r = await fetch(`/api/map/${MapAPI.worldId}/decompress?region=${cr.id}`, {method:'POST'});
-    const data = await r.json();
-    if (data.ok) {
-      showToast(`已解压 ${data.restored} 格`);
-      await loadMap();
-      return true;
-    } else {
-      showToast('解压失败: ' + (data.error || 'unknown'));
-    }
-  } catch(e) { showToast('解压失败: ' + e.message); }
-  return false;
-}
 
 canvas.addEventListener('mouseup', e => {
   if (tool === 'province' && provinceLasso.length > 2) {
@@ -149,6 +96,11 @@ canvas.addEventListener('mouseup', e => {
     if (found) { selectProvince(found); }
   } else if (clickHex && mouseDown) {
     showHexDetail(clickHex.q, clickHex.r);
+    const key = `${clickHex.q}_${clickHex.r}`;
+    const crMeta = mapData._compressedMeta?.get(key);
+    const prev = selectedCompressedRegion;
+    selectedCompressedRegion = crMeta ? crMeta.regionId : null;
+    if (selectedCompressedRegion !== prev) render();
   }
   mouseDown = false; panStart = null; clickHex = null;
 });
@@ -266,20 +218,41 @@ async function loadMap() {
     }
     if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
     if (!mapData.hexes) mapData.hexes = {};
-    // Build _hexSet for compressed regions + a global lookup
-    window._compressedHexSet = new Set();
-    for (const cr of (mapData.compressedRegions || [])) {
-      if (cr.hexKeys && Array.isArray(cr.hexKeys)) {
-        cr._hexSet = new Set(cr.hexKeys);
-        for (const k of cr.hexKeys) window._compressedHexSet.add(k);
-      }
-    }
-    for (const b of mapData.terrainBlocks) {
-      if (b.hexKeys && Array.isArray(b.hexKeys)) {
-        b._hexSet = new Set(b.hexKeys);
-      }
-    }
     if (!mapData.tags) mapData.tags = {};
+
+    // Build compressed hex lookup & Proxy mapData.hexes for transparent access
+    const rawHexes = mapData.hexes;
+    const compressedLookup = new Map();
+    mapData._compressedMeta = new Map();     // key → {regionId, terrain, color, size}
+    mapData._compressedById = new Map();      // regionId → {terrain, color, size, hexKeys: Set}
+    if (mapData.compressedRegions) {
+      for (const cr of mapData.compressedRegions) {
+        const meta = {regionId: cr.id, terrain: cr.terrain, color: cr.color, size: cr.size};
+        mapData._compressedById.set(cr.id, {terrain: cr.terrain, color: cr.color, size: cr.size, hexKeys: new Set(cr.hexKeys)});
+        if (cr.hexKeys) for (const key of cr.hexKeys) {
+          compressedLookup.set(key, {color: cr.color, terrain: cr.terrain, description: '', riverMask: 0});
+          mapData._compressedMeta.set(key, meta);
+        }
+      }
+    }
+    mapData.hexes = new Proxy(rawHexes, {
+      get(target, key) {
+        if (key === Symbol.iterator || typeof key === 'symbol') return target[key];
+        if (key in target) return target[key];
+        return compressedLookup.get(key);
+      },
+      has(target, key) { return key in target || compressedLookup.has(key); },
+      set(target, key, value) { target[key] = value; compressedLookup.delete(key); return true; },
+      deleteProperty(target, key) { delete target[key]; return true; },
+      getOwnPropertyDescriptor(target, key) {
+        if (key in target) return Object.getOwnPropertyDescriptor(target, key);
+        if (compressedLookup.has(key)) return {value: compressedLookup.get(key), enumerable: true, configurable: true, writable: true};
+      }
+    });
+
+    for (const b of mapData.terrainBlocks) {
+      if (b.hexKeys && Array.isArray(b.hexKeys)) b._hexSet = new Set(b.hexKeys);
+    }
     setStatus(`已加载: ${MapAPI.worldId}`);
   } catch(e) {
     mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
@@ -296,8 +269,18 @@ async function saveMap() {
     mapData.terrainTypes = {...DEFAULT_TERRAINS};
   }
   try {
+    // Clean up: remove individually-edited hexes from their compressed regions
+    if (mapData.compressedRegions) {
+      for (const cr of mapData.compressedRegions) {
+        if (!cr.hexKeys) continue;
+        cr.hexKeys = cr.hexKeys.filter(k => !(k in mapData.hexes));
+        cr.size = cr.hexKeys.length;
+      }
+      // Remove empty regions
+      mapData.compressedRegions = mapData.compressedRegions.filter(cr => cr.size > 0);
+    }
     // Strip client-only fields before sending to server
-    const {tags, compressedRegions, ...clean} = mapData;
+    const {tags, compressedRegions, _compressedMeta, _compressedById, ...clean} = mapData;
     await MapAPI.save(clean);
     saveTags();
     showToast('已保存');
