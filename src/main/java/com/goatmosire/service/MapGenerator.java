@@ -224,10 +224,10 @@ public class MapGenerator {
 
     private static String terrainColor(String t) {
         return switch (t) {
-            case "mountain" -> "#808080";
+            case "mountain" -> "#6B6B6B";
             case "hills"    -> "#A0522D";
             case "lowland"  -> "#5B8C3E";
-            case "plains"   -> "#C5B358";
+            case "plains"   -> "#B8A88A";
             case "swamp"    -> "#556B2F";
             default         -> "#5B8C3E";
         };
@@ -239,13 +239,13 @@ public class MapGenerator {
 
     static LinkedHashMap<String, MapData.TerrainType> defaultTerrainTypes() {
         var tt = new LinkedHashMap<String, MapData.TerrainType>();
-        tt.put("water",    new MapData.TerrainType("水",   "#3295D2", 1, 0, 0, 99, "水域"));
-        tt.put("lowland",  new MapData.TerrainType("低地", "#5B8C3E", 3, 1, 1, 1,  "低地"));
-        tt.put("plains",   new MapData.TerrainType("平原", "#C5B358", 2, 2, 1, 1,  "平原/丘陵混合"));
+        tt.put("water",    new MapData.TerrainType("水域", "#3295D2", 1, 0, 0, 99, "海洋/湖泊"));
+        tt.put("lowland",  new MapData.TerrainType("低地", "#5B8C3E", 3, 1, 1, 1,  "沿海低地，向内陆过渡"));
+        tt.put("hills",    new MapData.TerrainType("丘陵", "#A0522D", 2, 1, 3, 2,  "低地与山区的过渡带"));
+        tt.put("plains",   new MapData.TerrainType("山区", "#B8A88A", 2, 2, 1, 1,  "内陆高原/山区，高山峰簇散布其间"));
+        tt.put("mountain", new MapData.TerrainType("高山", "#6B6B6B", 0, 2, 5, 3,  "高山峰簇，嵌入山区内部"));
         tt.put("forest",   new MapData.TerrainType("森林", "#228B22", 2, 1, 2, 2,  "森林 (兼容旧地图)"));
-        tt.put("hills",    new MapData.TerrainType("丘陵", "#A0522D", 2, 1, 3, 2,  "丘陵"));
-        tt.put("mountain", new MapData.TerrainType("山地", "#808080", 0, 2, 5, 3,  "山地"));
-        tt.put("swamp",    new MapData.TerrainType("沼泽", "#556B2F", 2, 0, 1, 2,  "沼泽"));
+        tt.put("swamp",    new MapData.TerrainType("沼泽", "#556B2F", 2, 0, 1, 2,  "海岸沼泽/湿地"));
         tt.put("desert",   new MapData.TerrainType("沙漠", "#DDC88D", 1, 2, 1, 2,  "沙漠"));
         tt.put("tundra",   new MapData.TerrainType("冻土", "#A8C4D8", 1, 1, 1, 2,  "冻土"));
         return tt;

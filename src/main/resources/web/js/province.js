@@ -239,10 +239,10 @@ function finishProvinceLasso() {
   const cq=Math.round(sq/boundSet.size), cr=Math.round(sr/boundSet.size);
   let seed = null;
   for (let rad=0; rad<200 && !seed; rad++) {
-    if (rad===0) { const k=cq+'_'+cr; if(!boundSet.has(k)&&mapData.hexes[k]){seed={q:cq,r:cr};break;} continue; }
+    if (rad===0) { const k=cq+'_'+cr; if(!boundSet.has(k)&&hexExists(k)){seed={q:cq,r:cr};break;} continue; }
     let qq=cq+rad*DIR_VECTORS[4][0], rr=cr+rad*DIR_VECTORS[4][1];
     for (let d=0;d<6&&!seed;d++) for (let s=0;s<rad;s++) {
-      const k=qq+'_'+rr; if(!boundSet.has(k)&&mapData.hexes[k]){seed={q:qq,r:rr};break;}
+      const k=qq+'_'+rr; if(!boundSet.has(k)&&hexExists(k)){seed={q:qq,r:rr};break;}
       qq+=DIR_VECTORS[d][0]; rr+=DIR_VECTORS[d][1];
     }
   }
@@ -253,7 +253,7 @@ function finishProvinceLasso() {
     if(visited.has(k))continue; visited.add(k); interior.add(k);
     for (const [dq,dr] of DIR_VECTORS) {
       const nk=(q+dq)+'_'+(r+dr);
-      if(!boundSet.has(nk)&&!visited.has(nk)&&mapData.hexes[nk]) queue.push({q:q+dq,r:r+dr});
+      if(!boundSet.has(nk)&&!visited.has(nk)&&hexExists(nk)) queue.push({q:q+dq,r:r+dr});
     }
   }
 

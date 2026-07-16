@@ -158,3 +158,44 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
   background: none; border: none; color: var(--dim); cursor: pointer; font-size: 11px; padding: 0 4px;
 }
 .latest-panel .refresh-btn:hover { color: var(--accent); }
+
+/* Expand panel — bottom-right, above gen-panel, collapsible */
+.expand-panel {
+  position: fixed; bottom: 12px; right: 260px; z-index: 301;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 11px; min-width: 210px;
+}
+.expand-panel h4 {
+  margin: 0; padding: 8px 12px; font-size: 12px; color: var(--accent);
+  cursor: pointer; user-select: none;
+}
+.expand-panel .body { padding: 0 12px 8px; display: block; }
+.expand-panel .body.collapsed { display: none; }
+.expand-panel .row { display: flex; align-items: center; gap: 6px; }
+.expand-panel .row label { color: var(--dim); font-size: 10px; }
+.expand-panel .row input[type=number] {
+  width: 48px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 4px; font-size: 10px; text-align: center;
+}
+
+/* Direction hex grid (2 rows × 3 cols) */
+.expand-dirs {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 4px; text-align: center;
+}
+.expand-dir-btn {
+  padding: 4px 0; font-size: 11px; background: var(--bg);
+  color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer; user-select: none;
+}
+.expand-dir-btn:hover { background: var(--accent); color: #fff; }
+.expand-dir-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.expand-go-btn {
+  width: 100%; margin-top: 4px; padding: 4px 0;
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 4px; font-size: 12px; cursor: pointer;
+}
+.expand-go-btn:hover { opacity: 0.85; }
+.expand-go-btn:disabled { opacity: 0.4; cursor: not-allowed; }

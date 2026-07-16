@@ -56,6 +56,7 @@ public class McpToolRegistry {
             case "goatmosire_delete_checkpoint_element" -> handleDeleteCheckpointElement(args);
             case "goatmosire_rename_region" -> handleRenameRegion(args);
             case "goatmosire_init_nation" -> handleInitNation(args);
+            case "goatmosire_update_terrain_type" -> handleUpdateTerrainType(args);
             default -> throw new IllegalArgumentException("Unknown tool: " + name);
         };
     }
@@ -302,6 +303,22 @@ public class McpToolRegistry {
               "ruler":{"type":"string","description":"Ruler name (optional, appended to faction tags)"},
               "religion":{"type":"string","description":"Religion (optional, appended to faction tags)"}
             },"required":["worldId","name","seedQ","seedR"]}""");
+
+        register("goatmosire_update_terrain_type",
+            "Update a terrain type definition (name, color, food, gold, stone, moveCost, description). Provide only the fields you want to change.",
+            """
+            {"type":"object","properties":{
+              "worldId":{"type":"string","description":"GSim world ID"},
+              "nodeId":{"type":"string","description":"Node ID (optional, defaults to active node)"},
+              "key":{"type":"string","description":"Terrain key: water, lowland, hills, plains, mountain, swamp, desert, tundra, forest"},
+              "name":{"type":"string","description":"New display name (e.g. '山区')"},
+              "color":{"type":"string","description":"New hex color (e.g. '#B8A88A')"},
+              "food":{"type":"integer","description":"Food output"},
+              "gold":{"type":"integer","description":"Gold output"},
+              "stone":{"type":"integer","description":"Stone output"},
+              "moveCost":{"type":"integer","description":"Movement cost"},
+              "description":{"type":"string","description":"Tooltip description"}
+            },"required":["worldId","key"]}""");
 
     }
 
@@ -935,6 +952,37 @@ public class McpToolRegistry {
             "tag", tag, "color", color,
             "center", Map.of("q", Math.round((float)sq/hexList.size()), "r", Math.round((float)sr/hexList.size())),
             "checkpointsCreated", created));
+    }
+
+    private String handleUpdateTerrainType(JsonNode args) throws Exception {
+        String worldId = args.get("worldId").asText();
+        String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
+        String key = args.get("key").asText();
+        MapData map = mapService.resolve(worldId, nodeId);
+        if (!map.terrainTypes().containsKey(key))
+            return toJson(Map.of("ok", false, "error", "Terrain type not found: " + key));
+
+        MapData.TerrainType existing = map.terrainTypes().get(key);
+        String newName = args.has("name") ? args.get("name").asText() : existing.name();
+        String newColor = args.has("color") ? args.get("color").asText() : existing.color();
+        int newFood = args.has("food") ? args.get("food").asInt() : existing.food();
+        int newGold = args.has("gold") ? args.get("gold").asInt() : existing.gold();
+        int newStone = args.has("stone") ? args.get("stone").asInt() : existing.stone();
+        int newMoveCost = args.has("moveCost") ? args.get("moveCost").asInt() : existing.moveCost();
+        String newDesc = args.has("description") ? args.get("description").asText() : existing.description();
+
+        var updatedTypes = new LinkedHashMap<>(map.terrainTypes());
+        updatedTypes.put(key, new MapData.TerrainType(newName, newColor, newFood, newGold, newStone, newMoveCost, newDesc));
+
+        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), map.provinces(), map.cities(),
+            map.rivers(), map.roads(), updatedTypes);
+        mapService.saveFull(worldId, nodeId, updated);
+        mapService.syncToGSimNode(worldId, nodeId);
+
+        return toJson(Map.of("ok", true, "key", key,
+            "name", newName, "color", newColor,
+            "food", newFood, "gold", newGold, "stone", newStone, "moveCost", newMoveCost));
     }
 
     /** Read the active node ID from active.json. */

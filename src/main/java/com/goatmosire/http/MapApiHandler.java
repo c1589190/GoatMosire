@@ -80,6 +80,16 @@ public class MapApiHandler implements HttpHandler {
                 handleRenameRegion(exchange, sub, params);
             } else if (sub.endsWith("/latest-texts")) {
                 handleLatestTexts(exchange, sub, params);
+            } else if (sub.endsWith("/version")) {
+                handleVersion(exchange, sub, params);
+            } else if (sub.endsWith("/expand")) {
+                handleExpand(exchange, sub, params);
+            } else if (sub.endsWith("/compress")) {
+                handleCompress(exchange, sub, params);
+            } else if (sub.endsWith("/decompress")) {
+                handleDecompress(exchange, sub, params);
+            } else if (sub.endsWith("/decompress-at")) {
+                handleDecompressAt(exchange, sub, params);
             } else {
                 String worldId = sub.startsWith("/") ? sub.substring(1) : sub;
                 if (worldId.contains("/")) worldId = worldId.substring(0, worldId.indexOf("/"));
@@ -127,6 +137,18 @@ public class MapApiHandler implements HttpHandler {
         }
 
         MapData map = mapService.resolve(worldId, nodeId);
+        // Merge compressed regions into the response
+        var compressedRegions = mapService.loadCompressedRegions(worldId, nodeId);
+        if (!compressedRegions.isEmpty()) {
+            var tree = MAPPER.valueToTree(map);
+            var crArray = MAPPER.valueToTree(compressedRegions);
+            ((com.fasterxml.jackson.databind.node.ObjectNode) tree).set("compressedRegions", crArray);
+            String json = MAPPER.writeValueAsString(tree);
+            byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(bytes); }
+            return;
+        }
         sendJson(exchange, 200, map);
     }
 
@@ -210,6 +232,126 @@ public class MapApiHandler implements HttpHandler {
         } catch (Exception e) {
             log.error("Failed to read latest texts", e);
             sendError(exchange, 500, "Failed: " + e.getMessage());
+        }
+    }
+
+    // ── GET /api/map/{worldId}/version ──────────────────────
+
+    private void handleVersion(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/version"));
+        String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        try {
+            var mapFile = mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
+            long lastMod = java.nio.file.Files.exists(mapFile)
+                ? java.nio.file.Files.getLastModifiedTime(mapFile).toMillis() : 0;
+            sendJson(exchange, 200, Map.of("worldId", worldId, "nodeId", nodeId, "version", lastMod));
+        } catch (Exception e) {
+            sendError(exchange, 500, e.getMessage());
+        }
+    }
+
+    // ── POST /api/map/{worldId}/expand?direction=E&radius=N ─
+
+    private void handleExpand(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed, use POST");
+            return;
+        }
+        String worldId = sub.substring(1, sub.indexOf("/expand"));
+        String direction = params.getOrDefault("direction", "E").toUpperCase();
+        int radius = Integer.parseInt(params.getOrDefault("radius", "0"));
+        String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        try {
+            var result = mapService.expand(worldId, nodeId, direction, radius);
+            int status = Boolean.TRUE.equals(result.get("ok")) ? 200 : 400;
+            sendJson(exchange, status, result);
+        } catch (Exception e) {
+            log.error("Expand failed", e);
+            sendError(exchange, 500, "Expand failed: " + e.getMessage());
+        }
+    }
+
+    // ── POST /api/map/{worldId}/compress?minSize=N ────────
+
+    private void handleCompress(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed, use POST");
+            return;
+        }
+        String worldId = sub.substring(1, sub.indexOf("/compress"));
+        int minSize = Integer.parseInt(params.getOrDefault("minSize", "100"));
+        String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        try {
+            var result = mapService.compress(worldId, nodeId, minSize);
+            int status = Boolean.TRUE.equals(result.get("ok")) ? 200 : 400;
+            sendJson(exchange, status, result);
+        } catch (Exception e) {
+            log.error("Compress failed", e);
+            sendError(exchange, 500, "Compress failed: " + e.getMessage());
+        }
+    }
+
+    // ── POST /api/map/{worldId}/decompress?region=xxx ─────
+
+    private void handleDecompress(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed, use POST");
+            return;
+        }
+        String worldId = sub.substring(1, sub.indexOf("/decompress"));
+        String regionId = params.get("region");
+        if (regionId == null) {
+            sendError(exchange, 400, "Missing 'region' parameter");
+            return;
+        }
+        String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        try {
+            var result = mapService.decompress(worldId, nodeId, regionId);
+            int status = Boolean.TRUE.equals(result.get("ok")) ? 200 : 400;
+            sendJson(exchange, status, result);
+        } catch (Exception e) {
+            log.error("Decompress failed", e);
+            sendError(exchange, 500, "Decompress failed: " + e.getMessage());
+        }
+    }
+
+    // ── POST /api/map/{worldId}/decompress-at?q=&r= ───────
+
+    private void handleDecompressAt(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendError(exchange, 405, "Method not allowed, use POST");
+            return;
+        }
+        String worldId = sub.substring(1, sub.indexOf("/decompress-at"));
+        int q = Integer.parseInt(params.getOrDefault("q", "0"));
+        int r = Integer.parseInt(params.getOrDefault("r", "0"));
+        String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
+        if (nodeId == null) {
+            sendError(exchange, 404, "No active node for world: " + worldId);
+            return;
+        }
+        try {
+            var result = mapService.decompressAt(worldId, nodeId, q, r);
+            sendJson(exchange, 200, result);
+        } catch (Exception e) {
+            log.error("Decompress-at failed", e);
+            sendError(exchange, 500, "Decompress failed: " + e.getMessage());
         }
     }
 

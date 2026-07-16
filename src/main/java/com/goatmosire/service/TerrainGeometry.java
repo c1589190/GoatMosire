@@ -158,41 +158,96 @@ public final class TerrainGeometry {
     }
 
     /**
-     * Reconstruct a polygon boundary from a hex set by extracting edge hex
-     * centers, sorting angularly, then simplifying with RDP.
+     * Reconstruct an OUTLINE polygon from a hex set by tracing exposed edges.
+     * Works for concave shapes (unlike angular sort around centroid).
      */
     public static List<MapData.Pt> hexSetToBoundary(Set<String> hexSet) {
         if (hexSet == null || hexSet.size() < 3) return List.of();
         Set<String> set = new HashSet<>(hexSet);
 
-        // Collect edge hex centers
-        List<double[]> edgeCenters = new ArrayList<>();
+        // Collect exposed edge segments. Each edge is a line between two hex corners.
+        // Key: "x1_y1-x2_y2" (sorted) to deduplicate shared edges.
+        Map<String, double[]> edgeSegments = new LinkedHashMap<>();
+
         for (String key : set) {
             int[] h = parseHexKey(key);
-            boolean isEdge = false;
-            for (int[] d : DIRS) {
-                if (!set.contains(hexKey(h[0] + d[0], h[1] + d[1]))) { isEdge = true; break; }
+            double cx, cy;
+            double[] pix = hexToPixel(h[0], h[1]);
+            cx = pix[0]; cy = pix[1];
+
+            // 6 corners of the hex (flat-top, same as frontend hexCorners)
+            double[][] corners = new double[6][2];
+            for (int i = 0; i < 6; i++) {
+                double angle = Math.toRadians(60 * i - 30);
+                corners[i][0] = cx + SIZE * Math.cos(angle);
+                corners[i][1] = cy + SIZE * Math.sin(angle);
             }
-            if (isEdge) edgeCenters.add(hexToPixel(h[0], h[1]));
+
+            // 6 edges: (0-1, 1-2, 2-3, 3-4, 4-5, 5-0) → direction d
+            // Edge d goes from corners[d] to corners[(d+1)%6]
+            for (int d = 0; d < 6; d++) {
+                int nq = h[0] + DIRS[d][0];
+                int nr = h[1] + DIRS[d][1];
+                if (set.contains(hexKey(nq, nr))) continue; // shared edge, skip
+
+                int c1 = d;
+                int c2 = (d + 1) % 6;
+                double x1 = corners[c1][0], y1 = corners[c1][1];
+                double x2 = corners[c2][0], y2 = corners[c2][1];
+
+                // Canonical key using integer-micron coords (robust matching)
+                String k1 = cornerKey(x1, y1), k2 = cornerKey(x2, y2);
+                String segKey = k1.compareTo(k2) < 0 ? k1 + "-" + k2 : k2 + "-" + k1;
+                edgeSegments.putIfAbsent(segKey, new double[]{x1, y1, x2, y2});
+            }
         }
 
-        if (edgeCenters.size() < 3) return List.of();
+        if (edgeSegments.size() < 3) return List.of();
 
-        // Angular sort around centroid
-        double sx = 0, sy = 0;
-        for (double[] e : edgeCenters) { sx += e[0]; sy += e[1]; }
-        final double cx = sx / edgeCenters.size();
-        final double cy = sy / edgeCenters.size();
+        // Build adjacency: endpoint → list of connected endpoints (integer-micron keys)
+        Map<String, List<String>> graph = new LinkedHashMap<>();
+        for (double[] seg : edgeSegments.values()) {
+            String a = cornerKey(seg[0], seg[1]);
+            String b = cornerKey(seg[2], seg[3]);
+            graph.computeIfAbsent(a, k -> new ArrayList<>()).add(b);
+            graph.computeIfAbsent(b, k -> new ArrayList<>()).add(a);
+        }
 
-        edgeCenters.sort(Comparator.comparingDouble(
-            e -> Math.atan2(e[1] - cy, e[0] - cx)));
+        // Walk the perimeter — start from any point, follow edges
+        String start = graph.keySet().iterator().next();
+        List<MapData.Pt> outline = new ArrayList<>();
+        Set<String> visited = new LinkedHashSet<>();
+        String cur = start;
 
-        List<MapData.Pt> raw = new ArrayList<>();
-        for (double[] e : edgeCenters) raw.add(new MapData.Pt(e[0], e[1]));
-        raw.add(new MapData.Pt(edgeCenters.get(0)[0], edgeCenters.get(0)[1])); // close
+        while (cur != null) {
+            double[] pt = parsePt(cur);
+            outline.add(new MapData.Pt(pt[0], pt[1]));
+            visited.add(cur);
 
-        // Simplify with RDP — epsilon = 2 hex pixels removes interior detail
-        return simplifyBoundary(raw, SIZE * 2.0);
+            String next = null;
+            for (String nb : graph.getOrDefault(cur, List.of())) {
+                if (!visited.contains(nb)) { next = nb; break; }
+            }
+            if (next == null) break; // closed the loop
+            cur = next;
+        }
+        // Close the polygon
+        if (!outline.isEmpty()) {
+            outline.add(new MapData.Pt(outline.get(0).x(), outline.get(0).y()));
+        }
+
+        // Return raw edge trace — browser GPU handles thousands of vertices fine
+        return outline;
+    }
+
+    // Integer-micron keys for robust corner matching (avoid floating-point drift)
+    private static String cornerKey(double x, double y) {
+        return Math.round(x * 1000) + "_" + Math.round(y * 1000);
+    }
+
+    private static double[] parsePt(String s) {
+        String[] parts = s.split("_");
+        return new double[]{Long.parseLong(parts[0]) / 1000.0, Long.parseLong(parts[1]) / 1000.0};
     }
 
     /** Ramer–Douglas–Peucker simplification. Removes points that lie near the

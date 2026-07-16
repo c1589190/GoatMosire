@@ -198,10 +198,10 @@ public class ContourQueryEngine {
 
     private static String terrainColor(String t) {
         return switch (t) {
-            case "mountain" -> "#808080";
+            case "mountain" -> "#6B6B6B";
             case "hills"    -> "#A0522D";
             case "lowland"  -> "#5B8C3E";
-            case "plains"   -> "#C5B358";
+            case "plains"   -> "#B8A88A";
             case "swamp"    -> "#556B2F";
             case "desert"   -> "#DDC88D";
             case "tundra"   -> "#A8C4D8";

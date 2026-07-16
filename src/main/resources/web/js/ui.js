@@ -27,7 +27,19 @@ function setStatus(msg) { document.getElementById('statusBar').textContent = msg
 // ── Info Panel ──────────────────────────────────────────
 function showHexDetail(q, r) {
   const key = `${q}_${r}`;
-  const cell = (mapData?.hexes || {})[key];
+  let cell = (mapData?.hexes || {})[key];
+
+  // Check compressed region if hex not found individually
+  let compressedInfo = null;
+  if (!cell) {
+    for (const cr of (mapData.compressedRegions || [])) {
+      if (cr._hexSet?.has(key) || cr.hexKeys?.includes(key)) {
+        compressedInfo = cr;
+        cell = {terrain: cr.terrain, color: cr.color, description: '', riverMask: 0};
+        break;
+      }
+    }
+  }
 
   const body = document.getElementById('leftBody');
   const title = document.getElementById('leftTitle');
@@ -43,7 +55,7 @@ function showHexDetail(q, r) {
   }
 
   const tt = terrainTypes[cell.terrain] || {};
-  title.textContent = `📍 (${q}, ${r})`;
+  title.textContent = `📍 (${q}, ${r})${compressedInfo ? ' [压缩区域]' : ''}`;
   document.getElementById('leftPanel').style.display = 'block';
 
   body.innerHTML = `
@@ -104,7 +116,8 @@ async function loadLatestTexts() {
   const body = document.getElementById('latestBody');
   body.innerHTML = '<div style="color:var(--dim);font-size:10px;padding:4px">加载中...</div>';
   try {
-    const r = await fetch(`/api/map/${MapAPI.worldId}/latest-texts`);
+    const nodeParam = MapAPI.nodeId ? `?node=${MapAPI.nodeId}` : '';
+    const r = await fetch(`/api/map/${MapAPI.worldId}/latest-texts${nodeParam}`);
     if (!r.ok) throw new Error(r.status);
     const data = await r.json();
     const texts = data.texts || [];

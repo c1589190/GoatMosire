@@ -30,13 +30,29 @@ function render() {
   let drawn = 0;
 
   const byColor = {};
+
+  // ── Compressed regions → individual hex fills ──
+  for (const cr of (mapData.compressedRegions || [])) {
+    if (!cr.hexKeys || cr.hexKeys.length === 0) continue;
+    const color = cr.color || getTerrainColor(cr.terrain);
+    if (!byColor[color]) byColor[color] = [];
+    for (const key of cr.hexKeys) {
+      const [q, r] = key.split('_').map(Number);
+      const {x, y} = hexToPixel(q, r);
+      if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
+      byColor[color].push({x, y, compressed: true});
+      drawn++;
+    }
+  }
+
+  // ── Individual hexes ──
   for (const [key, cell] of entries) {
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
     if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
     const color = resolveTerrainColor(q, r, cell);
     if (!byColor[color]) byColor[color] = [];
-    byColor[color].push({x, y});
+    byColor[color].push({x, y, compressed: false});
     drawn++;
   }
 
@@ -64,17 +80,24 @@ function render() {
   }
 
   for (const [color, hexes] of Object.entries(byColor)) {
-    ctx.fillStyle = color;
-    ctx.strokeStyle = '#ffffff18';
-    ctx.lineWidth = 0.5 / zoom;
-    for (const {x, y} of hexes) {
+    for (const h of hexes) {
+      const corners = hexCorners(h.x, h.y, GRID - 1);
       ctx.beginPath();
-      const corners = hexCorners(x, y, GRID - 1);
       ctx.moveTo(corners[0][0], corners[0][1]);
       for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
       ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      if (h.compressed) {
+        // Compressed: fill only, slightly lighter, no grid
+        ctx.fillStyle = color + 'cc';
+        ctx.fill();
+      } else {
+        // Individual: fill + visible grid lines
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff30';
+        ctx.lineWidth = 1.0 / zoom;
+        ctx.stroke();
+      }
     }
   }
 
@@ -94,18 +117,39 @@ function resizeCanvas() {
 }
 
 function fitView() {
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  let anyHex = false;
+
+  // Check individual hexes
   const hexes = mapData?.hexes;
-  if (!hexes || Object.keys(hexes).length === 0) {
+  if (hexes) {
+    Object.keys(hexes).forEach(key => {
+      const [q,r] = key.split('_').map(Number);
+      const {x,y} = hexToPixel(q,r);
+      minX=Math.min(minX,x-GRID); maxX=Math.max(maxX,x+GRID);
+      minY=Math.min(minY,y-GRID); maxY=Math.max(maxY,y+GRID);
+      anyHex = true;
+    });
+  }
+
+  // Also check compressed region hexKeys
+  const compressed = mapData?.compressedRegions || [];
+  for (const cr of compressed) {
+    if (!cr.hexKeys || cr.hexKeys.length === 0) continue;
+    for (const key of cr.hexKeys) {
+      const [q,r] = key.split('_').map(Number);
+      const {x,y} = hexToPixel(q,r);
+      minX=Math.min(minX,x-GRID); maxX=Math.max(maxX,x+GRID);
+      minY=Math.min(minY,y-GRID); maxY=Math.max(maxY,y+GRID);
+      anyHex = true;
+      break; // just need one hex from each region for bounds
+    }
+  }
+
+  if (!anyHex) {
     zoom = 1; offX = canvas.width/2; offY = canvas.height/2;
     render(); return;
   }
-  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
-  Object.keys(hexes).forEach(key => {
-    const [q,r] = key.split('_').map(Number);
-    const {x,y} = hexToPixel(q,r);
-    minX=Math.min(minX,x-GRID); maxX=Math.max(maxX,x+GRID);
-    minY=Math.min(minY,y-GRID); maxY=Math.max(maxY,y+GRID);
-  });
   const w=maxX-minX, h=maxY-minY;
   zoom = Math.min(canvas.width*0.85/w, canvas.height*0.85/h, 3);
   offX = canvas.width/2 - (minX+maxX)/2*zoom;

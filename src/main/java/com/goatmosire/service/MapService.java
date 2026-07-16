@@ -210,7 +210,7 @@ public class MapService {
             var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             stream.filter(f -> {
                 String name = f.getFileName().toString();
-                return name.startsWith("n") && name.endsWith(".json") && !name.contains("_map");
+                return name.startsWith("n") && name.endsWith(".json") && !name.contains("_map") && !name.contains("_compressed");
             }).sorted().forEach(f -> {
                 try {
                     var node = mapper.readTree(f.toFile());
@@ -405,6 +405,7 @@ public class MapService {
         }
 
         // 3. Re-sync map checkpoint with new name
+        evict(worldId, nodeId);  // ensure HTTP cache sees MCP writes
         syncToGSimNode(worldId, nodeId);
 
         log.info("Renamed region '{}' -> '{}' in world={} node={}", oldName, newName, worldId, nodeId);
@@ -418,6 +419,207 @@ public class MapService {
         MapData map = resolve(worldId, nodeId);
         if (map == null || map.hexes().isEmpty()) return;
         nodeSyncService.sync(worldId, nodeId, map);
+    }
+
+    // ── Map Expansion ──────────────────────────────────────
+
+    private static final int[][] EXPAND_DIRS = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+    private static final String[] EXPAND_NAMES = {"E","NE","NW","W","SW","SE"};
+
+    /** Expand the map by attaching a same-size hexagon in the given direction,
+     *  then filling diamond-feet gaps to form a larger coherent hexagon. */
+    public Map<String, Object> expand(String worldId, String nodeId, String direction, int attachRadius) {
+        MapData map = resolve(worldId, nodeId);
+        if (map == null || map.hexes().isEmpty())
+            return Map.of("ok", false, "error", "No map data");
+
+        // Find direction index
+        int dirIdx = -1;
+        for (int i = 0; i < EXPAND_NAMES.length; i++) {
+            if (EXPAND_NAMES[i].equals(direction)) { dirIdx = i; break; }
+        }
+        if (dirIdx < 0)
+            return Map.of("ok", false, "error", "Invalid direction: " + direction
+                + ". Use: E, NE, NW, W, SW, SE");
+
+        // Compute current center and radius from hex data
+        int minQ = Integer.MAX_VALUE, maxQ = Integer.MIN_VALUE;
+        int minR = Integer.MAX_VALUE, maxR = Integer.MIN_VALUE;
+        for (String key : map.hexes().keySet()) {
+            int[] qr = MapData.parseHexKey(key);
+            if (qr[0] < minQ) minQ = qr[0]; if (qr[0] > maxQ) maxQ = qr[0];
+            if (qr[1] < minR) minR = qr[1]; if (qr[1] > maxR) maxR = qr[1];
+        }
+        int cq = (minQ + maxQ) / 2;
+        int cr = (minR + maxR) / 2;
+        int cs = -cq - cr;
+        int radius = 0;
+        for (String key : map.hexes().keySet()) {
+            int[] qr = MapData.parseHexKey(key);
+            int s = -qr[0] - qr[1];
+            radius = Math.max(radius, Math.abs(qr[0]-cq) + Math.abs(qr[1]-cr) + Math.abs(s-cs));
+        }
+        radius = (radius + 1) / 2;
+        int useRadius = attachRadius > 0 ? attachRadius : radius;
+
+        int[] dir = EXPAND_DIRS[dirIdx];
+        int[] perp = EXPAND_DIRS[(dirIdx + 2) % 6];  // 60°×2 ≈ perpendicular
+        int dq = dir[0], dr = dir[1];
+        int pq = perp[0], pr = perp[1];
+
+        // H2 center and combined hexagon
+        int h2_q = 2 * useRadius * dq + useRadius * pq;
+        int h2_r = 2 * useRadius * dr + useRadius * pr;
+        int newCq = useRadius * (dq + pq);
+        int newCr = useRadius * (dr + pr);
+        int newRadius = 2 * useRadius;
+        int newCs = -newCq - newCr;
+
+        // Load contour for terrain generation
+        ContinentContour contour = loadContour(worldId);
+        ContourQueryEngine engine = contour != null ? new ContourQueryEngine(contour) : null;
+
+        // Build expanded hex grid
+        var newHexes = new LinkedHashMap<>(map.hexes());
+        int added = 0, waterAdded = 0, landAdded = 0;
+
+        for (int q = newCq - newRadius; q <= newCq + newRadius; q++) {
+            for (int r = newCr - newRadius; r <= newCr + newRadius; r++) {
+                String key = MapData.hexKey(q, r);
+                if (newHexes.containsKey(key)) continue;
+                int s = -q - r;
+                if (Math.abs(q-newCq) + Math.abs(r-newCr) + Math.abs(s-newCs) > 2*newRadius) continue;
+
+                String terrain, color;
+                if (engine != null) {
+                    var sample = engine.query(q, r);
+                    terrain = sample.terrain();
+                    color = sample.color();
+                } else {
+                    terrain = "lowland";
+                    color = "#5B8C3E";
+                }
+                int riverMask = 0;
+                newHexes.put(key, new MapData.HexCell(color, terrain, null, null, "", riverMask));
+                added++;
+                if ("water".equals(terrain)) waterAdded++;
+                else landAdded++;
+            }
+        }
+
+        int hexesBefore = map.hexes().size();
+        MapData expanded = new MapData(map.gridSize(), map.hexOrientation(), newHexes,
+            map.terrainBlocks(), map.provinces(), map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes());
+        saveFull(worldId, nodeId, expanded);
+
+        log.info("Expanded {} → {} ({} new hexes: {} land + {} water), new center=({},{}), radius={}",
+            direction, worldId, added, landAdded, waterAdded, newCq, newCr, newRadius);
+
+        var result = new LinkedHashMap<String, Object>();
+        result.put("ok", true);
+        result.put("direction", direction);
+        result.put("hexesBefore", hexesBefore);
+        result.put("hexesAfter", newHexes.size());
+        result.put("added", added);
+        result.put("landAdded", landAdded);
+        result.put("waterAdded", waterAdded);
+        result.put("oldCenter", Map.of("q", cq, "r", cr));
+        result.put("oldRadius", useRadius);
+        result.put("newCenter", Map.of("q", newCq, "r", newCr));
+        result.put("newRadius", newRadius);
+        return result;
+    }
+
+    // ── Compression ───────────────────────────────────────
+
+    private Path compressedFile(String worldId, String nodeId) {
+        return worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_compressed.json");
+    }
+
+    /** Load compressed regions for a node. */
+    @SuppressWarnings("unchecked")
+    public List<CompressedRegion> loadCompressedRegions(String worldId, String nodeId) {
+        Path file = compressedFile(worldId, nodeId);
+        if (!Files.exists(file)) return new ArrayList<>();
+        try {
+            return MAPPER.readValue(file.toFile(),
+                MAPPER.getTypeFactory().constructCollectionType(List.class, CompressedRegion.class));
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    /** Save compressed regions to separate file. */
+    public void saveCompressedRegions(String worldId, String nodeId, List<CompressedRegion> regions) {
+        try {
+            Path file = compressedFile(worldId, nodeId);
+            Files.createDirectories(file.getParent());
+            MAPPER.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), regions);
+        } catch (Exception e) {
+            log.error("Failed to save compressed regions", e);
+        }
+    }
+
+    /** Compress large same-terrain regions in a node's map. */
+    public Map<String, Object> compress(String worldId, String nodeId, int minRegionSize) {
+        MapData map = resolve(worldId, nodeId);
+        if (map == null || map.hexes().isEmpty())
+            return Map.of("ok", false, "error", "No map data");
+
+        if (minRegionSize <= 0) minRegionSize = CompressionService.DEFAULT_MIN_REGION_SIZE;
+
+        int hexesBefore = map.hexes().size();
+        List<CompressedRegion> regions = CompressionService.compress(map, minRegionSize);
+        int hexesAfter = map.hexes().size();
+
+        saveFull(worldId, nodeId, map);           // save compressed map (fewer hexes)
+        saveCompressedRegions(worldId, nodeId, regions);  // save region metadata
+
+        int totalCompressed = hexesBefore - hexesAfter;
+        log.info("Compressed {}/{}: {}→{} hexes, {} regions",
+            worldId, nodeId, hexesBefore, hexesAfter, regions.size());
+
+        var result = new LinkedHashMap<String, Object>();
+        result.put("ok", true);
+        result.put("hexesBefore", hexesBefore);
+        result.put("hexesAfter", hexesAfter);
+        result.put("compressedCount", totalCompressed);
+        result.put("regions", regions.size());
+        result.put("compressionRatio", hexesBefore > 0
+            ? String.format("%.1f%%", 100.0 * hexesAfter / hexesBefore) : "0%");
+        return result;
+    }
+
+    /** Decompress a specific region by id. */
+    public Map<String, Object> decompress(String worldId, String nodeId, String regionId) {
+        MapData map = resolve(worldId, nodeId);
+        List<CompressedRegion> regions = loadCompressedRegions(worldId, nodeId);
+
+        int restored = CompressionService.decompress(map, regions, regionId);
+        if (restored == 0)
+            return Map.of("ok", false, "error", "Region not found: " + regionId);
+
+        saveFull(worldId, nodeId, map);
+        saveCompressedRegions(worldId, nodeId, regions);
+        return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size());
+    }
+
+    /** Decompress the region covering hex (q, r). */
+    public Map<String, Object> decompressAt(String worldId, String nodeId, int q, int r) {
+        MapData map = resolve(worldId, nodeId);
+        List<CompressedRegion> regions = loadCompressedRegions(worldId, nodeId);
+
+        if (regions.isEmpty())
+            return Map.of("ok", true, "note", "no compressed regions", "q", q, "r", r);
+
+        int restored = CompressionService.decompressAt(map, regions, q, r);
+        if (restored == 0)
+            return Map.of("ok", true, "note", "hex not in any compressed region", "q", q, "r", r);
+
+        saveFull(worldId, nodeId, map);
+        saveCompressedRegions(worldId, nodeId, regions);
+        return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size(), "q", q, "r", r);
     }
 
     public void evict(String worldId, String nodeId) {

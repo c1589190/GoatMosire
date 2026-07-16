@@ -58,6 +58,7 @@
 <script src="js/generator.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/events.js"></script>
+<script src="js/expand.js"></script>
 
 <div class="gen-panel" id="genPanel">
   <h4 onclick="toggleGenPanel()"><span id="genArrow">▼</span> 🎲 大陆生成参数</h4>
@@ -75,6 +76,26 @@
 <div class="latest-panel" id="latestPanel">
   <h4 onclick="toggleLatestPanel()"><span><span id="latestArrow">▼</span> 📋 最新推文</span><button class="refresh-btn" onclick="event.stopPropagation();loadLatestTexts()" title="刷新">↻</button></h4>
   <div class="body" id="latestBody"><div style="color:var(--dim);font-size:10px;padding:4px">加载中...</div></div>
+</div>
+
+<div class="expand-panel" id="expandPanel">
+  <h4 onclick="toggleExpandPanel()"><span id="expandArrow">▶</span> 🗺 地图扩充</h4>
+  <div class="body collapsed" id="expandBody">
+    <div class="row" style="margin-bottom:6px">
+      <label style="font-size:10px">方向</label>
+    </div>
+    <div class="expand-dirs" id="expandDirs">
+      <!-- injected by expand.js -->
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>半径</label>
+      <input type="number" id="expandRadius" value="0" min="0" max="200" style="width:60px" title="0=自动匹配当前半径">
+      <span style="font-size:9px;color:var(--dim)">0=自动</span>
+    </div>
+    <div class="row" style="margin-top:4px">
+      <span id="expandInfo" style="font-size:9px;color:var(--dim)">选择方向后点击扩充</span>
+    </div>
+  </div>
 </div>
 
 <script>init();</script>

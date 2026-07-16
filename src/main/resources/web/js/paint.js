@@ -22,6 +22,12 @@ function applyTool(q, r) {
 }
 
 function floodFill(seedKey, terrain) {
+  if (!hexExists(seedKey)) return;
+  // Decompress if needed
+  if (!mapData.hexes[seedKey]) {
+    const [q,r] = seedKey.split('_').map(Number);
+    decompressRegionAt(q, r);
+  }
   if (!mapData.hexes[seedKey]) return;
   const targetTerrain = mapData.hexes[seedKey].terrain;
   if (targetTerrain === terrain) return;
