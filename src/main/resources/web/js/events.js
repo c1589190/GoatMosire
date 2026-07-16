@@ -220,35 +220,20 @@ async function loadMap() {
     if (!mapData.hexes) mapData.hexes = {};
     if (!mapData.tags) mapData.tags = {};
 
-    // Build compressed hex lookup & Proxy mapData.hexes for transparent access
-    const rawHexes = mapData.hexes;
-    const compressedLookup = new Map();
-    mapData._compressedMeta = new Map();     // key → {regionId, terrain, color, size}
-    mapData._compressedById = new Map();      // regionId → {terrain, color, size, hexKeys: Set}
+    // Build compressed region metadata for render optimization + UI
+    // hexes() always contains ALL hexes (compression no longer removes them —
+    // compressedRegions is a pure rendering cache, rebuilt by re-running compress)
+    mapData._compressedMeta = new Map();     // key → {regionId, terrain, color}
+    mapData._compressedById = new Map();      // regionId → {terrain, color, hexKeys: Set}
     if (mapData.compressedRegions) {
       for (const cr of mapData.compressedRegions) {
-        const meta = {regionId: cr.id, terrain: cr.terrain, color: cr.color, size: cr.size};
-        mapData._compressedById.set(cr.id, {terrain: cr.terrain, color: cr.color, size: cr.size, hexKeys: new Set(cr.hexKeys)});
+        const meta = {regionId: cr.id, terrain: cr.terrain, color: cr.color};
+        mapData._compressedById.set(cr.id, {terrain: cr.terrain, color: cr.color, hexKeys: new Set(cr.hexKeys)});
         if (cr.hexKeys) for (const key of cr.hexKeys) {
-          compressedLookup.set(key, {color: cr.color, terrain: cr.terrain, description: '', riverMask: 0});
           mapData._compressedMeta.set(key, meta);
         }
       }
     }
-    mapData.hexes = new Proxy(rawHexes, {
-      get(target, key) {
-        if (key === Symbol.iterator || typeof key === 'symbol') return target[key];
-        if (key in target) return target[key];
-        return compressedLookup.get(key);
-      },
-      has(target, key) { return key in target || compressedLookup.has(key); },
-      set(target, key, value) { target[key] = value; compressedLookup.delete(key); return true; },
-      deleteProperty(target, key) { delete target[key]; return true; },
-      getOwnPropertyDescriptor(target, key) {
-        if (key in target) return Object.getOwnPropertyDescriptor(target, key);
-        if (compressedLookup.has(key)) return {value: compressedLookup.get(key), enumerable: true, configurable: true, writable: true};
-      }
-    });
 
     for (const b of mapData.terrainBlocks) {
       if (b.hexKeys && Array.isArray(b.hexKeys)) b._hexSet = new Set(b.hexKeys);
@@ -269,18 +254,8 @@ async function saveMap() {
     mapData.terrainTypes = {...DEFAULT_TERRAINS};
   }
   try {
-    // Clean up: remove individually-edited hexes from their compressed regions
-    if (mapData.compressedRegions) {
-      for (const cr of mapData.compressedRegions) {
-        if (!cr.hexKeys) continue;
-        cr.hexKeys = cr.hexKeys.filter(k => !(k in mapData.hexes));
-        cr.size = cr.hexKeys.length;
-      }
-      // Remove empty regions
-      mapData.compressedRegions = mapData.compressedRegions.filter(cr => cr.size > 0);
-    }
-    // Strip client-only fields before sending to server
-    const {tags, compressedRegions, _compressedMeta, _compressedById, ...clean} = mapData;
+    // compressedRegions is a server-side rendering cache — no client cleanup needed
+    const {tags, _compressedMeta, _compressedById, ...clean} = mapData;
     await MapAPI.save(clean);
     saveTags();
     showToast('已保存');

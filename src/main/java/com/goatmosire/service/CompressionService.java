@@ -1,17 +1,19 @@
 package com.goatmosire.service;
 
 import com.gsim.map.MapData;
+import com.gsim.map.MapData.CompressedRegion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
 /**
- * Detects large contiguous same-terrain regions and compresses them into
- * polygon-bounded CompressedRegion objects, removing individual hexes from storage.
+ * Detects large contiguous same-terrain regions in {@link MapData#hexes()} and creates
+ * {@link CompressedRegion} entries for efficient rendering.
  *
- * <p>Also handles decompression: expanding a CompressedRegion back to individual hexes
- * when the user wants to edit that area.
+ * <p>IMPORTANT: This service does NOT remove hexes from hexes(). hexes() is always the
+ * authoritative data source. compressedRegions is a pure rendering optimization — it can
+ * be regenerated at any time by re-running {@link #compress}.
  */
 public class CompressionService {
 
@@ -22,8 +24,8 @@ public class CompressionService {
     public static final int DEFAULT_MIN_REGION_SIZE = 100;
 
     /**
-     * Compress a MapData by finding large connected same-terrain regions,
-     * removing them from hexes, and creating CompressedRegions instead.
+     * Scan hexes for large contiguous same-terrain regions and create CompressedRegions.
+     * Does NOT remove hexes from map.hexes() — hexes remain the authoritative data source.
      *
      * @return the list of newly created CompressedRegions
      */
@@ -71,78 +73,66 @@ public class CompressionService {
                 boolean isWater = "water".equals(terrain);
                 List<MapData.Pt> boundary = TerrainGeometry.hexSetToBoundary(component);
 
-                CompressedRegion cr = new CompressedRegion(id, terrain, color, component, boundary, isWater);
+                CompressedRegion cr = new CompressedRegion(
+                    id, terrain, color, boundary, isWater, component);
                 regions.add(cr);
-
-                // Remove compressed hexes from the map
-                for (String k : component) {
-                    map.hexes().remove(k);
-                }
 
                 log.debug("Compressed: {} ({}×{})", id, terrain, component.size());
             }
         }
 
-        log.info("Compression complete: {} regions created (≥{} hexes), {} hexes remain individual",
+        log.info("Compression complete: {} regions created (≥{} hexes), {} hexes total",
             regions.size(), minRegionSize, map.hexes().size());
         return regions;
     }
 
+    // ── Decompression (just remove CR entries, hexes are already in hexes()) ──
+
     /**
-     * Decompress a single region back into individual hexes in the map.
+     * Decompress a single region. Since hexes remain in map.hexes() at all times,
+     * this simply removes the region from the list.
      *
-     * @return the number of hexes restored, or 0 if region not found
+     * @return the number of hexes that were in the region, or 0 if not found
      */
-    public static int decompress(MapData map, List<CompressedRegion> regions, String regionId) {
+    public static int decompress(List<CompressedRegion> regions, String regionId) {
         CompressedRegion target = null;
         for (CompressedRegion cr : regions) {
-            if (cr.id.equals(regionId)) { target = cr; break; }
+            if (cr.id().equals(regionId)) { target = cr; break; }
         }
         if (target == null) return 0;
-
-        return decompressRegion(map, regions, target);
+        int count = target.size();
+        regions.remove(target);
+        log.info("Decompressed: {} ({}×{})", target.id(), target.terrain(), count);
+        return count;
     }
 
     /**
-     * Decompress the region at a specific hex coordinate.
+     * Decompress the region covering hex (q, r).
      *
      * @return the number of hexes restored, or 0 if no region covers this hex
      */
-    public static int decompressAt(MapData map, List<CompressedRegion> regions, int q, int r) {
+    public static int decompressAt(List<CompressedRegion> regions, int q, int r) {
         String key = MapData.hexKey(q, r);
 
-        // Check if already an individual hex
-        if (map.hexes().containsKey(key)) return 0;
-
-        // Find the first region whose hexKeys contain this key
         for (CompressedRegion cr : regions) {
-            if (cr.hexKeys != null && cr.hexKeys.contains(key)) {
-                return decompressRegion(map, regions, cr);
+            if (cr.hexKeys() != null && cr.hexKeys().contains(key)) {
+                int count = cr.size();
+                regions.remove(cr);
+                log.info("Decompressed: {} ({}×{})", cr.id(), cr.terrain(), count);
+                return count;
             }
-            // Also check boundary if hexKeys not available
-            if (cr.boundary != null && !cr.boundary.isEmpty()) {
+            // Also check boundary if hexKeys available
+            if (cr.boundary() != null && !cr.boundary().isEmpty()) {
                 double[] px = TerrainGeometry.hexToPixel(q, r);
-                if (TerrainGeometry.pointInPolygon(px[0], px[1], cr.boundary)) {
-                    if (cr.hexKeys == null) cr.hexKeys = new HashSet<>();
-                    cr.hexKeys.add(key);
-                    return decompressRegion(map, regions, cr);
+                if (TerrainGeometry.pointInPolygon(px[0], px[1], cr.boundary())) {
+                    int count = cr.size();
+                    regions.remove(cr);
+                    log.info("Decompressed: {} ({}×{})", cr.id(), cr.terrain(), count);
+                    return count;
                 }
             }
         }
         return 0;
-    }
-
-    private static int decompressRegion(MapData map, List<CompressedRegion> regions, CompressedRegion cr) {
-        if (cr.hexKeys == null || cr.hexKeys.isEmpty()) return 0;
-
-        int riverMask = 0;
-        for (String key : cr.hexKeys) {
-            map.hexes().put(key, new MapData.HexCell(cr.color, cr.terrain, null, null, "", riverMask));
-        }
-        int count = cr.hexKeys.size();
-        regions.remove(cr);
-        log.info("Decompressed: {} ({}×{})", cr.id, cr.terrain, count);
-        return count;
     }
 
     private static String terrainColor(String t) {

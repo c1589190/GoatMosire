@@ -52,23 +52,10 @@ public class MapService {
         return cache.computeIfAbsent(key, k -> loadMapData(worldId, nodeId));
     }
 
-    /** Load MapData, stripping compressedRegions from JSON before gsim-core parsing. */
+    /** Load MapData. compressedRegions is now a native field — no stripping needed. */
     private MapData loadMapData(String worldId, String nodeId) {
-        // Root node: load directly, handling embedded compressedRegions
         if (isRootNode(worldId, nodeId)) {
-            Path mapFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
-            if (Files.exists(mapFile)) {
-                try {
-                    var tree = MAPPER.readTree(mapFile.toFile());
-                    if (tree.has("compressedRegions")) {
-                        ((com.fasterxml.jackson.databind.node.ObjectNode) tree).remove("compressedRegions");
-                    }
-                    return MAPPER.treeToValue(tree, MapData.class);
-                } catch (Exception e) {
-                    log.error("Failed to load map for {}/{}", worldId, nodeId, e);
-                }
-            }
-            return MapData.empty();
+            return MapStore.loadFull(worldsDir, worldId, nodeId);
         }
         // Child node: use gsim-core MapResolver for diff chain
         return MapResolver.resolve(worldsDir, worldId, nodeId);
@@ -184,7 +171,7 @@ public class MapService {
         MapData updated = new MapData(
             map.gridSize(), map.hexOrientation(), map.hexes(),
             blocks, map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes()
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions()
         );
         // Save directly to disk without evicting the canvas cache
         MapStore.saveFull(worldsDir, worldId, "n0000", updated);
@@ -194,28 +181,9 @@ public class MapService {
 
     // ── Mutation ──────────────────────────────────────────
 
-    /** Save a full map with compressed regions embedded in the map JSON. */
+    /** Save a full map. compressedRegions is a native MapData field — auto-serialized. */
     public void saveFull(String worldId, String nodeId, MapData data) {
-        saveFull(worldId, nodeId, data, null);
-    }
-
-    public void saveFull(String worldId, String nodeId, MapData data,
-                         List<CompressedRegion> compressedRegions) {
-        try {
-            Path file = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
-            Files.createDirectories(file.getParent());
-            var tree = MAPPER.valueToTree(data);
-            if (compressedRegions != null && !compressedRegions.isEmpty()) {
-                tree = ((com.fasterxml.jackson.databind.node.ObjectNode) tree)
-                    .set("compressedRegions", MAPPER.valueToTree(compressedRegions));
-            }
-            MAPPER.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), tree);
-            // Clean up legacy separate compressed file
-            Path legacy = compressedFile(worldId, nodeId);
-            if (Files.exists(legacy)) Files.delete(legacy);
-        } catch (IOException e) {
-            log.error("Failed to save map for {}/{}", worldId, nodeId, e);
-        }
+        MapStore.saveFull(worldsDir, worldId, nodeId, data);
         evict(worldId, nodeId);
     }
 
@@ -445,7 +413,7 @@ public class MapService {
         }
         MapData newMap = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updated, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         saveFull(worldId, nodeId, newMap);
 
         // 2. Update checkpoint references in node JSON
@@ -561,7 +529,7 @@ public class MapService {
         int hexesBefore = map.hexes().size();
         MapData expanded = new MapData(map.gridSize(), map.hexOrientation(), newHexes,
             map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         saveFull(worldId, nodeId, expanded);
 
         log.info("Expanded {} → {} ({} new hexes: {} land + {} water), new center=({},{}), radius={}",
@@ -584,56 +552,7 @@ public class MapService {
 
     // ── Compression ───────────────────────────────────────
 
-    private Path compressedFile(String worldId, String nodeId) {
-        return worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_compressed.json");
-    }
-
-    /** Load compressed regions for a node (from embedded map JSON or legacy file). */
-    @SuppressWarnings("unchecked")
-    public List<CompressedRegion> loadCompressedRegions(String worldId, String nodeId) {
-        // Try embedded in map JSON first
-        Path mapFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
-        if (Files.exists(mapFile)) {
-            try {
-                var tree = MAPPER.readTree(mapFile.toFile());
-                if (tree.has("compressedRegions")) {
-                    return MAPPER.readValue(tree.get("compressedRegions").traverse(),
-                        MAPPER.getTypeFactory().constructCollectionType(List.class, CompressedRegion.class));
-                }
-            } catch (Exception e) { /* fall through to legacy */ }
-        }
-        // Legacy separate file
-        Path file = compressedFile(worldId, nodeId);
-        if (!Files.exists(file)) return new ArrayList<>();
-        try {
-            return MAPPER.readValue(file.toFile(),
-                MAPPER.getTypeFactory().constructCollectionType(List.class, CompressedRegion.class));
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
-    }
-
-    /** Save compressed regions embedded in the map JSON. */
-    public void saveCompressedRegions(String worldId, String nodeId, List<CompressedRegion> regions) {
-        Path mapFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
-        if (!Files.exists(mapFile)) return;
-        try {
-            var tree = (com.fasterxml.jackson.databind.node.ObjectNode) MAPPER.readTree(mapFile.toFile());
-            if (regions.isEmpty()) {
-                tree.remove("compressedRegions");
-            } else {
-                tree.set("compressedRegions", MAPPER.valueToTree(regions));
-            }
-            MAPPER.writerWithDefaultPrettyPrinter().writeValue(mapFile.toFile(), tree);
-            // Clean up legacy
-            Path legacy = compressedFile(worldId, nodeId);
-            if (Files.exists(legacy)) Files.delete(legacy);
-        } catch (Exception e) {
-            log.error("Failed to save compressed regions", e);
-        }
-    }
-
-    /** Compress large same-terrain regions in a node's map. */
+    /** Compress large same-terrain regions in a node's map. Hexes stay in hexes(). */
     public Map<String, Object> compress(String worldId, String nodeId, int minRegionSize) {
         MapData map = resolve(worldId, nodeId);
         if (map == null || map.hexes().isEmpty())
@@ -641,56 +560,63 @@ public class MapService {
 
         if (minRegionSize <= 0) minRegionSize = CompressionService.DEFAULT_MIN_REGION_SIZE;
 
-        int hexesBefore = map.hexes().size();
-        List<CompressedRegion> regions = CompressionService.compress(map, minRegionSize);
-        int hexesAfter = map.hexes().size();
+        List<MapData.CompressedRegion> regions = CompressionService.compress(map, minRegionSize);
 
-        saveFull(worldId, nodeId, map);           // save compressed map (fewer hexes)
-        saveCompressedRegions(worldId, nodeId, regions);  // save region metadata
+        // Build updated MapData with new compressedRegions
+        MapData updated = new MapData(
+            map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), map.provinces(), map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes(), regions);
+        saveFull(worldId, nodeId, updated);
 
-        int totalCompressed = hexesBefore - hexesAfter;
-        log.info("Compressed {}/{}: {}→{} hexes, {} regions",
-            worldId, nodeId, hexesBefore, hexesAfter, regions.size());
+        log.info("Compressed {}/{}: {} hexes, {} regions",
+            worldId, nodeId, map.hexes().size(), regions.size());
 
         var result = new LinkedHashMap<String, Object>();
         result.put("ok", true);
-        result.put("hexesBefore", hexesBefore);
-        result.put("hexesAfter", hexesAfter);
-        result.put("compressedCount", totalCompressed);
+        result.put("hexCount", map.hexes().size());
         result.put("regions", regions.size());
-        result.put("compressionRatio", hexesBefore > 0
-            ? String.format("%.1f%%", 100.0 * hexesAfter / hexesBefore) : "0%");
+        int compressedHexes = regions.stream().mapToInt(MapData.CompressedRegion::size).sum();
+        result.put("compressedCount", compressedHexes);
+        result.put("compressionRatio", map.hexes().size() > 0
+            ? String.format("%.1f%%", 100.0 * compressedHexes / map.hexes().size()) : "0%");
         return result;
     }
 
-    /** Decompress a specific region by id. */
+    /** Decompress a specific region by id (remove from compressedRegions list). */
     public Map<String, Object> decompress(String worldId, String nodeId, String regionId) {
         MapData map = resolve(worldId, nodeId);
-        List<CompressedRegion> regions = loadCompressedRegions(worldId, nodeId);
+        List<MapData.CompressedRegion> regions = new ArrayList<>(map.compressedRegions());
 
-        int restored = CompressionService.decompress(map, regions, regionId);
+        int restored = CompressionService.decompress(regions, regionId);
         if (restored == 0)
             return Map.of("ok", false, "error", "Region not found: " + regionId);
 
-        saveFull(worldId, nodeId, map);
-        saveCompressedRegions(worldId, nodeId, regions);
+        MapData updated = new MapData(
+            map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), map.provinces(), map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes(), regions);
+        saveFull(worldId, nodeId, updated);
         return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size());
     }
 
     /** Decompress the region covering hex (q, r). */
     public Map<String, Object> decompressAt(String worldId, String nodeId, int q, int r) {
         MapData map = resolve(worldId, nodeId);
-        List<CompressedRegion> regions = loadCompressedRegions(worldId, nodeId);
+        List<MapData.CompressedRegion> regions = new ArrayList<>(map.compressedRegions());
 
         if (regions.isEmpty())
             return Map.of("ok", true, "note", "no compressed regions", "q", q, "r", r);
 
-        int restored = CompressionService.decompressAt(map, regions, q, r);
+        int restored = CompressionService.decompressAt(regions, q, r);
         if (restored == 0)
             return Map.of("ok", true, "note", "hex not in any compressed region", "q", q, "r", r);
 
-        saveFull(worldId, nodeId, map);
-        saveCompressedRegions(worldId, nodeId, regions);
+        MapData updated = new MapData(
+            map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), map.provinces(), map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes(), regions);
+        saveFull(worldId, nodeId, updated);
         return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size(), "q", q, "r", r);
     }
 

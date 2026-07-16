@@ -137,18 +137,7 @@ public class MapApiHandler implements HttpHandler {
         }
 
         MapData map = mapService.resolve(worldId, nodeId);
-        // Merge compressed regions into the response
-        var compressedRegions = mapService.loadCompressedRegions(worldId, nodeId);
-        if (!compressedRegions.isEmpty()) {
-            var tree = MAPPER.valueToTree(map);
-            var crArray = MAPPER.valueToTree(compressedRegions);
-            ((com.fasterxml.jackson.databind.node.ObjectNode) tree).set("compressedRegions", crArray);
-            String json = MAPPER.writeValueAsString(tree);
-            byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream os = exchange.getResponseBody()) { os.write(bytes); }
-            return;
-        }
+        // compressedRegions is now a native MapData field — auto-serialized
         sendJson(exchange, 200, map);
     }
 
@@ -573,13 +562,9 @@ public class MapApiHandler implements HttpHandler {
             } else {
                 MapData data = MAPPER.readValue(body, MapData.class);
                 if (isRootNode(worldId, nodeId)) {
-                    // Root node: save full map, preserve compressed regions
-                    var existingCR = mapService.loadCompressedRegions(worldId, nodeId);
                     mapService.saveFull(worldId, nodeId, data);
-                    if (!existingCR.isEmpty()) {
-                        mapService.saveCompressedRegions(worldId, nodeId, existingCR);
-                    }
-                    log.info("Saved full map for root node world={} node={}", worldId, nodeId);
+                    log.info("Saved full map for root node world={} node={} ({} CRs)", worldId, nodeId,
+                        data.compressedRegions().size());
                 } else {
                     // Child node: auto-compute diff vs parent's resolved map
                     String parentId = readParentNodeId(worldId, nodeId);

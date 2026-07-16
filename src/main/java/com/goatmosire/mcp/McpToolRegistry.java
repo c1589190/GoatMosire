@@ -662,7 +662,7 @@ public class McpToolRegistry {
         // Rebuild MapData with updated provinces
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -693,7 +693,7 @@ public class McpToolRegistry {
         updatedProvinces.put(name, new MapData.Province(newHexes, prov.color(), prov.tag(), prov.description()));
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -719,7 +719,7 @@ public class McpToolRegistry {
         updatedProvinces.put(name, new MapData.Province(newHexes, prov.color(), prov.tag(), prov.description()));
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -747,7 +747,7 @@ public class McpToolRegistry {
         updatedProvinces.put(name, new MapData.Province(hexes, color, tag, desc));
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -767,7 +767,7 @@ public class McpToolRegistry {
         updatedProvinces.remove(name);
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -898,7 +898,7 @@ public class McpToolRegistry {
         updatedProvinces.put(name, new MapData.Province(hexList, color, tag, ""));
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -976,7 +976,7 @@ public class McpToolRegistry {
 
         MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), updatedTypes);
+            map.rivers(), map.roads(), updatedTypes, map.compressedRegions());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 

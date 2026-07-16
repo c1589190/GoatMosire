@@ -60,7 +60,7 @@ public class ContourQueryEngine {
         }
         return new com.gsim.map.MapData(30, false, hexes, List.of(),
             new LinkedHashMap<>(), new LinkedHashMap<>(), List.of(), List.of(),
-            MapGenerator.defaultTerrainTypes());
+            MapGenerator.defaultTerrainTypes(), List.of());
     }
 
     // ═══════════════════════════════════════════════════════

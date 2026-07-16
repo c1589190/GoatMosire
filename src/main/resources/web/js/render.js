@@ -49,24 +49,31 @@ function render() {
   ctx.lineWidth = 0.5 / zoom;
 
   // ── Pass 1: Compressed regions (background layer) ──
-  const crByColor = {};
+  // Draw as filled polygons — one canvas fill per region (fast)
+  // Boundary coords use same GRID=30 as frontend hexToPixel
   for (const cr of (mapData.compressedRegions || [])) {
-    if (!cr.hexKeys || cr.hexKeys.length === 0) continue;
+    if (!cr.boundary || cr.boundary.length < 3) continue;
     const color = cr.color || getTerrainColor(cr.terrain);
-    if (!crByColor[color]) crByColor[color] = [];
-    for (const key of cr.hexKeys) {
-      const [q, r] = key.split('_').map(Number);
-      const {x, y} = hexToPixel(q, r);
-      if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
-      crByColor[color].push({x, y});
-      drawn++;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    const p0 = cr.boundary[0];
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < cr.boundary.length; i++) {
+      ctx.lineTo(cr.boundary[i].x, cr.boundary[i].y);
     }
+    ctx.closePath();
+    ctx.fill();
+    // Crude viewport cull: count hexKeys in view as "drawn" for status
+    drawn += cr.size || cr.hexKeys?.length || 0;
   }
-  drawHexBatch(crByColor);
 
   // ── Pass 2: Individual hexes (on top, override compressed) ──
+  // Skip hexes already covered by a compressed region with matching terrain
   const indByColor = {};
   for (const [key, cell] of entries) {
+    // Skip if covered by a compressed region with same terrain (not edited)
+    const crMeta = mapData._compressedMeta?.get(key);
+    if (crMeta && cell.terrain === crMeta.terrain) continue;
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
     if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
@@ -111,35 +118,28 @@ function render() {
 }
 
 function renderCompressedRegionBorder() {
-  if (!selectedCompressedRegion || !mapData._compressedById) return;
-  const cr = mapData._compressedById.get(selectedCompressedRegion);
-  if (!cr || !cr.hexKeys) return;
+  if (!selectedCompressedRegion || !mapData._compressedRegions) return;
+  // Find the compressed region by id
+  const crs = mapData.compressedRegions;
+  const cr = crs.find(c => c.id === selectedCompressedRegion);
+  if (!cr || !cr.boundary || cr.boundary.length < 3) return;
 
   ctx.save();
   ctx.translate(offX, offY);
   ctx.scale(zoom, zoom);
-  const invZ = 1/zoom;
-  const vl = -offX * invZ, vt = -offY * invZ;
-  const vr = vl + canvas.width * invZ, vb = vt + canvas.height * invZ;
 
   ctx.strokeStyle = (cr.color || '#FFD700') + 'cc';
   ctx.lineWidth = 4 / zoom;
-  for (const key of cr.hexKeys) {
-    const [q, r] = key.split('_').map(Number);
-    const {x, y} = hexToPixel(q, r);
-    if (x < vl || x > vr || y < vt || y > vb) continue;
-    let isEdge = false;
-    for (const [dq, dr] of DIR_VECTORS) {
-      if (!cr.hexKeys.has((q+dq)+'_'+(r+dr))) { isEdge = true; break; }
-    }
-    if (!isEdge) continue;
-    ctx.beginPath();
-    const corners = hexCorners(x, y, GRID - 1);
-    ctx.moveTo(corners[0][0], corners[0][1]);
-    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-    ctx.closePath();
-    ctx.stroke();
+  ctx.setLineDash([8 / zoom, 4 / zoom]);
+  ctx.beginPath();
+  ctx.moveTo(cr.boundary[0].x, cr.boundary[0].y);
+  for (let i = 1; i < cr.boundary.length; i++) {
+    ctx.lineTo(cr.boundary[i].x, cr.boundary[i].y);
   }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+
   ctx.restore();
 }
 
@@ -221,24 +221,40 @@ function renderProvinceHighlight() {
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(vl, vt, vr - vl, vb - vt);
 
-  // Redraw compressed region hexes on top of dim (background terrain)
+  // Redraw compressed regions dimmed (show terrain through the dark overlay)
   const crs = mapData.compressedRegions || [];
   if (crs.length > 0) {
+    ctx.globalAlpha = 0.45;
     for (const cr of crs) {
-      if (!cr.hexKeys || cr.hexKeys.length === 0) continue;
+      if (!cr.boundary || cr.boundary.length < 3) continue;
       ctx.fillStyle = cr.color || getTerrainColor(cr.terrain);
-      for (const key of cr.hexKeys) {
-        const [q, r] = key.split('_').map(Number);
-        const {x, y} = hexToPixel(q, r);
-        if (x < vl || x > vr || y < vt || y > vb) continue;
-        ctx.beginPath();
-        const corners = hexCorners(x, y, GRID - 1);
-        ctx.moveTo(corners[0][0], corners[0][1]);
-        for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-        ctx.closePath();
-        ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cr.boundary[0].x, cr.boundary[0].y);
+      for (let i = 1; i < cr.boundary.length; i++) {
+        ctx.lineTo(cr.boundary[i].x, cr.boundary[i].y);
       }
+      ctx.closePath();
+      ctx.fill();
     }
+    ctx.globalAlpha = 1;
+  }
+
+  // Redraw individual hexes not covered by matching CR (non-CR + edited CR hexes)
+  const entries = Object.entries(mapData.hexes || {});
+  for (const [key, cell] of entries) {
+    if (highlightSet.has(key)) continue; // drawn later as province hex
+    const crMeta = mapData._compressedMeta?.get(key);
+    if (crMeta && cell.terrain === crMeta.terrain) continue; // CR covers this
+    const [q, r] = key.split('_').map(Number);
+    const {x, y} = hexToPixel(q, r);
+    if (x < vl || x > vr || y < vt || y > vb) continue;
+    ctx.fillStyle = (cell.color || getTerrainColor(cell.terrain)) + '99';
+    ctx.beginPath();
+    const corners = hexCorners(x, y, GRID - 1);
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+    ctx.closePath();
+    ctx.fill();
   }
 
   for (const region of toRender) {

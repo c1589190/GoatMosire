@@ -18,7 +18,11 @@ public final class TerrainGeometry {
     public static final double SIZE = 30.0;
 
     /** The 6 axial direction vectors. */
-    public static final int[][] DIRS = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+    // Hex neighbor directions indexed by edge. Order must match corner angles (60*i - 30°):
+    // Edge 0 (right) → E(1,0), Edge 1 (bottom-right) → SE(0,1),
+    // Edge 2 (bottom-left) → SW(-1,1), Edge 3 (left) → W(-1,0),
+    // Edge 4 (top-left) → NW(0,-1), Edge 5 (top-right) → NE(1,-1)
+    public static final int[][] DIRS = {{1,0},{0,1},{-1,1},{-1,0},{0,-1},{1,-1}};
 
     /** Hex center to pixel coordinates. */
     public static double[] hexToPixel(int q, int r) {
@@ -213,36 +217,65 @@ public final class TerrainGeometry {
             graph.computeIfAbsent(b, k -> new ArrayList<>()).add(a);
         }
 
-        // Walk the perimeter — start from any point, follow edges
-        String start = graph.keySet().iterator().next();
-        List<MapData.Pt> outline = new ArrayList<>();
-        Set<String> visited = new LinkedHashSet<>();
-        String cur = start;
+        // Walk ALL connected boundary loops, return the outermost (largest bbox area).
+        // A polygon with holes produces multiple loops — we need the outer boundary for filling.
+        Set<String> globalVisited = new HashSet<>();
+        List<List<MapData.Pt>> allLoops = new ArrayList<>();
 
-        while (cur != null) {
-            double[] pt = parsePt(cur);
-            outline.add(new MapData.Pt(pt[0], pt[1]));
-            visited.add(cur);
+        for (String start : graph.keySet()) {
+            if (globalVisited.contains(start)) continue;
 
-            String next = null;
-            for (String nb : graph.getOrDefault(cur, List.of())) {
-                if (!visited.contains(nb)) { next = nb; break; }
+            List<MapData.Pt> loop = new ArrayList<>();
+            String cur = start;
+            while (cur != null) {
+                double[] pt = parsePt(cur);
+                loop.add(new MapData.Pt(pt[0], pt[1]));
+                globalVisited.add(cur);
+
+                String next = null;
+                for (String nb : graph.getOrDefault(cur, List.of())) {
+                    if (!globalVisited.contains(nb)) { next = nb; break; }
+                }
+                if (next == null) {
+                    // Close the loop
+                    if (!loop.isEmpty()) {
+                        loop.add(new MapData.Pt(loop.get(0).x(), loop.get(0).y()));
+                    }
+                    break;
+                }
+                cur = next;
             }
-            if (next == null) break; // closed the loop
-            cur = next;
-        }
-        // Close the polygon
-        if (!outline.isEmpty()) {
-            outline.add(new MapData.Pt(outline.get(0).x(), outline.get(0).y()));
+            if (loop.size() >= 4) allLoops.add(loop);
         }
 
-        // Return raw edge trace — browser GPU handles thousands of vertices fine
-        return outline;
+        if (allLoops.isEmpty()) return List.of();
+
+        // Return the loop with the largest bounding-box area
+        List<MapData.Pt> best = allLoops.get(0);
+        double bestArea = bboxArea(best);
+        for (int i = 1; i < allLoops.size(); i++) {
+            double a = bboxArea(allLoops.get(i));
+            if (a > bestArea) { best = allLoops.get(i); bestArea = a; }
+        }
+        return best;
     }
 
     // Integer-micron keys for robust corner matching (avoid floating-point drift)
     private static String cornerKey(double x, double y) {
         return Math.round(x * 1000) + "_" + Math.round(y * 1000);
+    }
+
+    private static double bboxArea(List<MapData.Pt> pts) {
+        if (pts == null || pts.isEmpty()) return 0;
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (var p : pts) {
+            if (p.x() < minX) minX = p.x();
+            if (p.x() > maxX) maxX = p.x();
+            if (p.y() < minY) minY = p.y();
+            if (p.y() > maxY) maxY = p.y();
+        }
+        return (maxX - minX) * (maxY - minY);
     }
 
     private static double[] parsePt(String s) {
