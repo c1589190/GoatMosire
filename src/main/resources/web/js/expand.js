@@ -24,13 +24,14 @@ async function doExpand() {
     return;
   }
   const radius = parseInt(document.getElementById('expandRadius').value) || 0;
+  const nodeParam = MapAPI.nodeId ? `&node=${MapAPI.nodeId}` : '';
   const info = document.getElementById('expandInfo');
   const btn = document.getElementById('expandGoBtn');
   info.textContent = '扩充中...';
   btn.disabled = true;
 
   try {
-    const url = `/api/map/${MapAPI.worldId}/expand?direction=${expandDirection}&radius=${radius}`;
+    const url = `/api/map/${MapAPI.worldId}/expand?direction=${expandDirection}&radius=${radius}${nodeParam}`;
     const r = await fetch(url, {method:'POST'});
     const data = await r.json();
     if (data.ok) {

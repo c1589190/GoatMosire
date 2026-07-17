@@ -163,7 +163,8 @@ async function doCompress() {
   const info = document.getElementById('compressInfo');
   info.textContent = '压缩中...';
   try {
-    const r = await fetch(`/api/map/${MapAPI.worldId}/compress?minSize=${minSize}`, {method:'POST'});
+    const nodeParam = MapAPI.nodeId ? `&node=${MapAPI.nodeId}` : '';
+    const r = await fetch(`/api/map/${MapAPI.worldId}/compress?minSize=${minSize}${nodeParam}`, {method:'POST'});
     const data = await r.json();
     if (data.ok) {
       info.textContent = `✅ ${data.compressedCount} 格 → ${data.regions} 个区域 (${data.compressionRatio})`;
