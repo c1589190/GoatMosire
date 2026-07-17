@@ -83,8 +83,8 @@ public class CompressionService {
 
         log.info("Compression complete: {} regions created (≥{} hexes), {} hexes total",
             regions.size(), minRegionSize, map.hexes().size());
-        // Sort ascending by size: small regions render on top, preventing large-region overlap
-        regions.sort(Comparator.comparingInt(CompressedRegion::size));
+        // Sort descending by size: large regions first (background), small details on top
+        regions.sort(Comparator.comparingInt(CompressedRegion::size).reversed());
         return regions;
     }
 
