@@ -1,5 +1,4 @@
 // ── Map Expansion Panel ──────────────────────────────────
-let expandCollapsed = true;
 let expandDirection = null;
 const EXPAND_DIRS = [
   {key:'NW', label:'↖ 西北', q:-1, r:0},
@@ -10,18 +9,13 @@ const EXPAND_DIRS = [
   {key:'SE', label:'↘ 东南', q:1, r:0},
 ];
 
-function toggleExpandPanel() {
-  expandCollapsed = !expandCollapsed;
-  document.getElementById('expandBody').classList.toggle('collapsed', expandCollapsed);
-  document.getElementById('expandArrow').textContent = expandCollapsed ? '▶' : '▼';
-}
-
 function selectExpandDir(key) {
   expandDirection = key;
   document.querySelectorAll('.expand-dir-btn').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector(`.expand-dir-btn[data-dir="${key}"]`);
   if (btn) btn.classList.add('active');
-  document.getElementById('expandInfo').textContent = `已选: ${key} — 点击「执行扩充」`;
+  document.getElementById('expandGoBtn').disabled = false;
+  document.getElementById('expandInfo').textContent = `已选: ${key} — 点击「扩充」`;
 }
 
 async function doExpand() {
@@ -51,17 +45,15 @@ async function doExpand() {
     info.textContent = `❌ ${e.message}`;
     showToast('扩充失败: ' + e.message);
   } finally {
-    btn.disabled = false;
+    btn.disabled = true;
   }
 }
 
 // Build direction buttons on init
 (function initExpandPanel() {
   const container = document.getElementById('expandDirs');
+  if (!container) return;
   let html = '';
-  // Layout: NW(0,0)  NE(0,1)  (empty=0,2)
-  //         W(1,0)    (1,1)   E(1,2)
-  //         SW(2,0)   (2,1)  SE(2,2)
   const layout = [
     {key:'NW', row:0, col:0}, {key:'NE', row:0, col:1}, {key:null, row:0, col:2},
     {key:'W',  row:1, col:0}, {key:null, row:1, col:1}, {key:'E',  row:1, col:2},
@@ -77,39 +69,4 @@ async function doExpand() {
     }
   }
   container.innerHTML = html;
-
-  // Add the Go button
-  const body = document.getElementById('expandBody');
-  const btn = document.createElement('button');
-  btn.id = 'expandGoBtn';
-  btn.className = 'expand-go-btn';
-  btn.textContent = '⚡ 执行扩充';
-  btn.onclick = doExpand;
-  body.appendChild(btn);
-
-  // Add compress button
-  const compBtn = document.createElement('button');
-  compBtn.id = 'compressBtn';
-  compBtn.className = 'expand-go-btn';
-  compBtn.style.cssText = 'margin-top:4px;background:#555';
-  compBtn.textContent = '🗜 压缩地图';
-  compBtn.title = '检测大连通同地形区域，压缩为大色块存储';
-  compBtn.onclick = async () => {
-    const size = parseInt(prompt('最小区域大小 (>=此大小的连通区域将被压缩):', '50')) || 50;
-    compBtn.disabled = true;
-    compBtn.textContent = '压缩中...';
-    try {
-      const r = await fetch(`/api/map/${MapAPI.worldId}/compress?minSize=${size}`, {method:'POST'});
-      const data = await r.json();
-      if (data.ok) {
-        showToast(`压缩完成: ${data.compressedCount} 格 → ${data.regions} 个区域 (留存 ${data.compressionRatio})`);
-        await loadMap();
-      } else {
-        showToast('压缩失败: ' + (data.error || 'unknown'));
-      }
-    } catch(e) { showToast('压缩失败: ' + e.message); }
-    compBtn.disabled = false;
-    compBtn.textContent = '🗜 压缩地图';
-  };
-  body.appendChild(compBtn);
 })();

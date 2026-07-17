@@ -16,12 +16,12 @@
   <button id="btnPen" class="active" onclick="setTool('pen')" title="画笔">🖊</button>
   <button id="btnFill" onclick="setTool('fill')" title="填充">🪣</button>
   <button id="btnEraser" onclick="setTool('eraser')" title="擦除">🧹</button>
-  <button id="btnRiver" onclick="setTool('river')" title="河流 — 点相邻格子拉河段">🌊</button>
-  <button id="btnProvince" onclick="setTool('province')" title="区域 — 右键拖套索创建">📐</button>
+  <button id="btnRiver" onclick="setTool('river')" title="河流">🌊</button>
+  <button id="btnProvince" onclick="setTool('province')" title="区域">📐</button>
+  <button id="btnMapEdit" onclick="toggleMapEdit()" title="地图编辑 — 生成/扩充/压缩">🗺</button>
 
   <span style="color:var(--dim);margin:0 4px;">|</span>
   <span id="terrainButtons" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
-    <!-- terrain buttons injected here -->
   </span>
 
   <span class="spacer"></span>
@@ -43,9 +43,67 @@
   <h4 id="rightTitle">📐 区域管理</h4>
   <div id="rightBody"></div>
 </div>
+<div class="right-panel map-edit-panel" id="mapEditPanel">
+  <h4>🗺 地图编辑</h4>
+  <div id="mapEditBody">
+    <!-- 🎲 大陆生成 -->
+    <div class="map-edit-section">
+      <div class="me-header" onclick="toggleMeSection(this)">
+        <span class="me-arrow">▼</span> 🎲 大陆生成参数
+      </div>
+      <div class="me-body" id="mapEditGen">
+        <div class="row"><label>主山脉数</label><input type="range" id="genRidges" min="1" max="6" value="2" oninput="syncGenRange('genRidges')"><span class="val" id="genRidgesVal">2</span></div>
+        <div class="row"><label>碎片数</label><input type="range" id="genFragments" min="1" max="15" value="5" oninput="syncGenRange('genFragments')"><span class="val" id="genFragmentsVal">5</span></div>
+        <div class="row"><label>陆地率</label><input type="range" id="genLand" min="0.25" max="0.80" step="0.01" value="0.55" oninput="syncGenRange('genLand')"><span class="val" id="genLandVal">0.55</span></div>
+        <div class="row"><label>粗糙度</label><input type="range" id="genRoughness" min="0.1" max="1.0" step="0.05" value="0.5" oninput="syncGenRange('genRoughness')"><span class="val" id="genRoughnessVal">0.5</span></div>
+        <div class="row"><label>半径</label><input type="range" id="genRadius" min="40" max="200" step="10" value="120" oninput="syncGenRange('genRadius')"><span class="val" id="genRadiusVal">120</span></div>
+        <div class="row"><label>种子</label><input type="number" id="genSeed" value="" placeholder="留空=随机" style="width:80px;flex:1"></div>
+        <button class="gen-btn" onclick="generateWorld()">🎲 生成大陆</button>
+      </div>
+    </div>
+
+    <!-- 🗺 地图扩充 -->
+    <div class="map-edit-section">
+      <div class="me-header" onclick="toggleMeSection(this)">
+        <span class="me-arrow">▶</span> 🗺 地图扩充
+      </div>
+      <div class="me-body collapsed" id="mapEditExpand">
+        <div class="expand-dirs" id="expandDirs"></div>
+        <div class="row" style="margin-top:8px">
+          <label>半径</label>
+          <input type="number" id="expandRadius" value="0" min="0" max="200" style="width:60px" title="0=自动匹配当前半径">
+          <span style="font-size:9px;color:var(--dim)">0=自动</span>
+        </div>
+        <button class="expand-go-btn" onclick="doExpand()" disabled id="expandGoBtn">扩充</button>
+        <div id="expandInfo" style="font-size:9px;color:var(--dim);margin-top:4px">选择方向后点击扩充</div>
+      </div>
+    </div>
+
+    <!-- 📐 区域压缩 -->
+    <div class="map-edit-section">
+      <div class="me-header" onclick="toggleMeSection(this)">
+        <span class="me-arrow">▶</span> 📐 区域压缩
+      </div>
+      <div class="me-body collapsed" id="mapEditCompress">
+        <div class="row">
+          <label>最小区域</label>
+          <input type="number" id="compressMinSize" value="100" min="10" max="1000" style="width:60px">
+          <span style="font-size:9px;color:var(--dim)">hex</span>
+        </div>
+        <button class="compress-go-btn" onclick="doCompress()">压缩区域</button>
+        <div id="compressInfo" style="font-size:9px;color:var(--dim);margin-top:4px"></div>
+      </div>
+    </div>
+  </div>
+</div>
 </div>
 
-<!-- JS: order matters — state first, then utilities, then features, events last -->
+<!-- Latest texts — keep floating bottom-left -->
+<div class="latest-panel" id="latestPanel">
+  <h4 onclick="toggleLatestPanel()"><span><span id="latestArrow">▼</span> 📋 最新推文</span><button class="refresh-btn" onclick="event.stopPropagation();loadLatestTexts()" title="刷新">↻</button></h4>
+  <div class="body" id="latestBody"><div style="color:var(--dim);font-size:10px;padding:4px">加载中...</div></div>
+</div>
+
 <script src="map-api.js"></script>
 <script src="js/state.js"></script>
 <script src="js/hex-math.js"></script>
@@ -59,44 +117,6 @@
 <script src="js/ui.js"></script>
 <script src="js/events.js"></script>
 <script src="js/expand.js"></script>
-
-<div class="gen-panel" id="genPanel">
-  <h4 onclick="toggleGenPanel()"><span id="genArrow">▼</span> 🎲 大陆生成参数</h4>
-  <div class="body" id="genBody">
-    <div class="row"><label>主山脉数</label><input type="range" id="genRidges" min="1" max="6" value="2" oninput="syncGenRange('genRidges')"><span class="val" id="genRidgesVal">2</span></div>
-    <div class="row"><label>碎片数</label><input type="range" id="genFragments" min="1" max="15" value="5" oninput="syncGenRange('genFragments')"><span class="val" id="genFragmentsVal">5</span></div>
-    <div class="row"><label>陆地率</label><input type="range" id="genLand" min="0.25" max="0.80" step="0.01" value="0.55" oninput="syncGenRange('genLand')"><span class="val" id="genLandVal">0.55</span></div>
-    <div class="row"><label>粗糙度</label><input type="range" id="genRoughness" min="0.1" max="1.0" step="0.05" value="0.5" oninput="syncGenRange('genRoughness')"><span class="val" id="genRoughnessVal">0.5</span></div>
-    <div class="row"><label>半径</label><input type="range" id="genRadius" min="40" max="200" step="10" value="120" oninput="syncGenRange('genRadius')"><span class="val" id="genRadiusVal">120</span></div>
-    <div class="row"><label>种子</label><input type="number" id="genSeed" value="" placeholder="留空=随机" style="width:80px;flex:1"></div>
-    <button class="gen-btn" onclick="generateWorld()">🎲 生成大陆</button>
-  </div>
-</div>
-
-<div class="latest-panel" id="latestPanel">
-  <h4 onclick="toggleLatestPanel()"><span><span id="latestArrow">▼</span> 📋 最新推文</span><button class="refresh-btn" onclick="event.stopPropagation();loadLatestTexts()" title="刷新">↻</button></h4>
-  <div class="body" id="latestBody"><div style="color:var(--dim);font-size:10px;padding:4px">加载中...</div></div>
-</div>
-
-<div class="expand-panel" id="expandPanel">
-  <h4 onclick="toggleExpandPanel()"><span id="expandArrow">▶</span> 🗺 地图扩充</h4>
-  <div class="body collapsed" id="expandBody">
-    <div class="row" style="margin-bottom:6px">
-      <label style="font-size:10px">方向</label>
-    </div>
-    <div class="expand-dirs" id="expandDirs">
-      <!-- injected by expand.js -->
-    </div>
-    <div class="row" style="margin-top:8px">
-      <label>半径</label>
-      <input type="number" id="expandRadius" value="0" min="0" max="200" style="width:60px" title="0=自动匹配当前半径">
-      <span style="font-size:9px;color:var(--dim)">0=自动</span>
-    </div>
-    <div class="row" style="margin-top:4px">
-      <span id="expandInfo" style="font-size:9px;color:var(--dim)">选择方向后点击扩充</span>
-    </div>
-  </div>
-</div>
 
 <script>init();</script>
 </body>

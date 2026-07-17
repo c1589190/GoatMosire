@@ -6,6 +6,7 @@ function setTool(t) {
   document.getElementById('btnEraser').classList.toggle('active', t==='eraser');
   document.getElementById('btnRiver').classList.toggle('active', t==='river');
   document.getElementById('btnProvince').classList.toggle('active', t==='province');
+  document.getElementById('btnMapEdit').classList.toggle('active', t==='mapedit');
   riverStart = null;
   provinceLasso = [];
   lassoPts = [];
@@ -13,8 +14,12 @@ function setTool(t) {
   if (t === 'province') {
     showTagList();
     document.getElementById('rightPanel').style.display = 'block';
+    document.getElementById('mapEditPanel').style.display = 'none';
+  } else if (t === 'mapedit') {
+    document.getElementById('rightPanel').style.display = 'none';
   } else {
     document.getElementById('rightPanel').style.display = 'none';
+    document.getElementById('mapEditPanel').style.display = 'none';
     document.getElementById('leftPanel').style.display = 'none';
     canvas._boundaryHexes = null;
     canvas.style.cursor = '';
@@ -138,3 +143,38 @@ function escapeHtml(s) {
 
 // Auto-load on startup
 setTimeout(loadLatestTexts, 2000);
+
+// ── Map Edit Panel ─────────────────────────────────────
+function toggleMapEdit() {
+  const panel = document.getElementById('mapEditPanel');
+  panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+  setTool('mapedit');
+}
+
+function toggleMeSection(header) {
+  const arrow = header.querySelector('.me-arrow');
+  const body = header.nextElementSibling;
+  body.classList.toggle('collapsed');
+  arrow.classList.toggle('rotated');
+}
+
+async function doCompress() {
+  const minSize = parseInt(document.getElementById('compressMinSize').value) || 100;
+  const info = document.getElementById('compressInfo');
+  info.textContent = '压缩中...';
+  try {
+    const r = await fetch(`/api/map/${MapAPI.worldId}/compress?minSize=${minSize}`, {method:'POST'});
+    const data = await r.json();
+    if (data.ok) {
+      info.textContent = `✅ ${data.compressedCount} 格 → ${data.regions} 个区域 (${data.compressionRatio})`;
+      showToast(`压缩完成: ${data.compressedCount} 格 → ${data.regions} 个区域`);
+      await loadMap();
+    } else {
+      info.textContent = `❌ ${data.error || '失败'}`;
+      showToast('压缩失败: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    info.textContent = `❌ ${e.message}`;
+    showToast('压缩失败: ' + e.message);
+  }
+}
