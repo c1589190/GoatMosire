@@ -1,6 +1,8 @@
 # GoatMosire MCP 服务使用指南
 
-GoatMosire 是 GSimulator 的六边形地图编辑器 + MCP 网关，通过 **MCP (Model Context Protocol)** 同时暴露 **地图编辑**（22 个工具）和 **世界文档管理**（12 个 GSim 工具），供 AI Agent（Claude Code、Codex、Cline 等）直接调用。
+GoatMosire 是 GSimulator 的一站式地图编辑器 + MCP 网关，通过 **MCP (Model Context Protocol)** 提供 **51 个工具**，涵盖地图编辑、世界文档管理、LLM Provider 配置、Agent 生命周期管理，供 AI Agent（Claude Code、Codex、Cline 等）直接调用。
+
+启动时自动内嵌 GSimulator HTTP API（端口 8710），LLM/Agent 工具**开箱即用**，无需额外进程。
 
 ---
 
@@ -12,11 +14,14 @@ GoatMosire 是 GSimulator 的六边形地图编辑器 + MCP 网关，通过 **MC
 # 构建
 cd GoatMosire && mvn package -DskipTests -q
 
-# 启动（HTTP + MCP 双开，worldsDir 默认 ./worlds）
+# 启动（HTTP + MCP + 内嵌 GSim API 三合一）
 java -Dgoatmosire.worldsDir=./worlds -jar target/goatmosire-0.1.0-SNAPSHOT.jar
 
-# 仅 MCP
+# 仅 MCP（GSim API 仍自动启动在后台）
 java -Dgoatmosire.worldsDir=./worlds -jar target/goatmosire-0.1.0-SNAPSHOT.jar --mcp-only
+
+# 禁用内嵌 GSim
+java -Dgoatmosire.worldsDir=./worlds -Dgoatmosire.noGsim=true -jar target/goatmosire-0.1.0-SNAPSHOT.jar
 ```
 
 ### 1.2 配置 Agent 软件
@@ -315,7 +320,7 @@ GoatMosire 实现 **JSON-RPC 2.0**，通过 **stdio** 通信，协议版本 `202
 
 ### 5.6 LLM Provider 管理（6 个）
 
-> 通过 HTTP 转发调用 GSimulator 的 `/api/llm` 端点。需要 GSimulator (`gsim-app`) 运行在 `http://127.0.0.1:8710`。
+> 调用内嵌 GSimulator HTTP API（启动时自动绑定 `127.0.0.1:8710`）。无需额外配置。
 
 | 工具 | 描述 | 必需参数 |
 |------|------|----------|
@@ -324,7 +329,7 @@ GoatMosire 实现 **JSON-RPC 2.0**，通过 **stdio** 通信，协议版本 `202
 | `gsim_llm_add` | 添加新 Provider | `id`, `baseUrl`, `model` |
 | `gsim_llm_update` | 修改 Provider 字段 | `id`, `field`, `value` |
 | `gsim_llm_delete` | 删除 Provider | `id` |
-| `gsim_llm_test` | 测试 Provider 连通性 | `id` |
+| `gsim_llm_test` | 测试 Provider 连通性，返回 `{connected: bool, detail: "..."}` | `id` |
 
 ```json
 // 添加新 Provider
