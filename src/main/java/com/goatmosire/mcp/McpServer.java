@@ -34,7 +34,7 @@ public class McpServer implements Runnable {
     public McpServer(MapService mapService, Path importDir) {
         this.mapService = mapService;
         this.goatRegistry = new McpToolRegistry(mapService);
-        this.gsimRegistry = new GsimMcpToolRegistry(mapService.getWorldsDir(), importDir);
+        this.gsimRegistry = new GsimMcpToolRegistry(mapService.getWorldsDir(), importDir, null);
     }
 
     @Override
