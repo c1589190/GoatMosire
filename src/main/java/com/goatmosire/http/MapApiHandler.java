@@ -137,11 +137,7 @@ public class MapApiHandler implements HttpHandler {
         }
 
         MapData map = mapService.resolve(worldId, nodeId);
-        // Inject per-node compressedRegions into response (now stored in _cr.json)
-        com.fasterxml.jackson.databind.node.ObjectNode mapJson = MAPPER.valueToTree(map);
-        List<MapData.CompressedRegion> crs = mapService.loadCr(worldId, nodeId);
-        mapJson.set("compressedRegions", MAPPER.valueToTree(crs));
-        sendJson(exchange, 200, mapJson);
+        sendJson(exchange, 200, map);
     }
 
     // ── GET /api/map/{worldId}/history ────────────────────
