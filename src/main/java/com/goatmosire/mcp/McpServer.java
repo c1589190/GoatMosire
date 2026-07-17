@@ -4,20 +4,21 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.gsim.mcp.GsimMcpToolRegistry;
 import com.goatmosire.service.MapService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.file.Path;
 import java.util.*;
 
 /**
  * MCP (Model Context Protocol) JSON-RPC 2.0 server over stdio.
  *
  * <p>Implements the minimum MCP spec: initialize, tools/list, tools/call.
- * No external MCP library needed — pure JDK + Jackson.
- *
- * <p>Registered tools are prefixed "goatmosire_" for Hermes auto-discovery.
+ * Merges both GoatMosire map tools and GSim world/document management tools.
+ * All GoatMosire tools are prefixed "goatmosire_", GSim tools prefixed "gsim_".
  */
 public class McpServer implements Runnable {
 
@@ -25,13 +26,15 @@ public class McpServer implements Runnable {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final MapService mapService;
-    private final McpToolRegistry registry;
+    private final McpToolRegistry goatRegistry;
+    private final GsimMcpToolRegistry gsimRegistry;
     private volatile boolean running = true;
     private volatile InputStream stdin;
 
     public McpServer(MapService mapService) {
         this.mapService = mapService;
-        this.registry = new McpToolRegistry(mapService);
+        this.goatRegistry = new McpToolRegistry(mapService);
+        this.gsimRegistry = new GsimMcpToolRegistry(mapService.getWorldsDir());
     }
 
     @Override
@@ -40,7 +43,7 @@ public class McpServer implements Runnable {
     }
 
     public void start() {
-        log.info("MCP server starting on stdio...");
+        log.info("MCP server starting on stdio... (goatmosire + gsim tools)");
         stdin = System.in;
         try (BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
              PrintWriter out = new PrintWriter(new OutputStreamWriter(System.out), true)) {
@@ -98,8 +101,13 @@ public class McpServer implements Runnable {
     }
 
     private JsonNode handleToolsList() {
+        List<GsimMcpToolRegistry.ToolDef> gsimTools = gsimRegistry.all();
+        List<McpToolRegistry.ToolDef> goatTools = goatRegistry.all();
+
         ArrayNode tools = MAPPER.createArrayNode();
-        for (McpToolRegistry.ToolDef tool : registry.all()) {
+
+        // Add GoatMosire tools
+        for (McpToolRegistry.ToolDef tool : goatTools) {
             ObjectNode t = MAPPER.createObjectNode();
             t.put("name", tool.name());
             t.put("description", tool.description());
@@ -110,6 +118,23 @@ public class McpServer implements Runnable {
             }
             tools.add(t);
         }
+
+        // Add GSim tools (prefixed "gsim_")
+        for (GsimMcpToolRegistry.ToolDef tool : gsimTools) {
+            ObjectNode t = MAPPER.createObjectNode();
+            t.put("name", tool.name());
+            t.put("description", tool.description());
+            try {
+                t.set("inputSchema", MAPPER.readTree(tool.schema()));
+            } catch (Exception e) {
+                log.warn("Invalid schema for tool {}", tool.name(), e);
+            }
+            tools.add(t);
+        }
+
+        log.info("tools/list: {} goatmosire + {} gsim = {} total",
+            goatTools.size(), gsimTools.size(), tools.size());
+
         ObjectNode result = MAPPER.createObjectNode();
         result.set("tools", tools);
         return result;
@@ -122,7 +147,15 @@ public class McpServer implements Runnable {
             : MAPPER.createObjectNode();
 
         try {
-            String result = registry.execute(toolName, args);
+            String result;
+
+            // Route: gsim_* tools go to GSim registry, goatmosire_* to GoatMosire
+            if (toolName.startsWith("gsim_")) {
+                result = gsimRegistry.execute(toolName, args);
+            } else {
+                result = goatRegistry.execute(toolName, args);
+            }
+
             ArrayNode content = MAPPER.createArrayNode();
             ObjectNode text = MAPPER.createObjectNode();
             text.put("type", "text");

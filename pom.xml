@@ -33,6 +33,13 @@
             <version>0.1.0-Alpha1</version>
         </dependency>
 
+        <!-- GSim MCP (world data & document management tools) — bundled in lib/ -->
+        <dependency>
+            <groupId>com.gsim</groupId>
+            <artifactId>gsim-mcp</artifactId>
+            <version>0.1.0-Alpha1</version>
+        </dependency>
+
         <!-- Jackson (gsim-core has databind, we add core for low-level ops) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
