@@ -40,7 +40,7 @@ public class GoatMosireApp {
         }
 
         // Start MCP server (on main thread if MCP-only, background thread otherwise)
-        McpServer mcpServer = new McpServer(mapService);
+        McpServer mcpServer = new McpServer(mapService, config.importDir());
         if (config.mcpMode() && !config.httpMode()) {
             // MCP-only: run on main thread (blocking)
             mcpServer.start();
@@ -87,6 +87,7 @@ public class GoatMosireApp {
                         
                         System properties:
                           -Dgoatmosire.worldsDir=<path>   GSim worlds directory (default: ./worlds)
+                          -Dgoatmosire.importDir=<path>   GSim import/docs directory (default: <worldsDir>/../import)
                           -Dgoatmosire.port=<port>        HTTP port (default: 8711)
                         """);
                     System.exit(0);

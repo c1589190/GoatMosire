@@ -31,10 +31,10 @@ public class McpServer implements Runnable {
     private volatile boolean running = true;
     private volatile InputStream stdin;
 
-    public McpServer(MapService mapService) {
+    public McpServer(MapService mapService, Path importDir) {
         this.mapService = mapService;
         this.goatRegistry = new McpToolRegistry(mapService);
-        this.gsimRegistry = new GsimMcpToolRegistry(mapService.getWorldsDir());
+        this.gsimRegistry = new GsimMcpToolRegistry(mapService.getWorldsDir(), importDir);
     }
 
     @Override
