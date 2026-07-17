@@ -17,3 +17,17 @@ worlds/
 .DS_Store
 Thumbs.db
 dependency-reduced-pom.xml
+
+# Node / NPM (LSP dependencies, not project code)
+node_modules/
+package.json
+package-lock.json
+
+# Eclipse IDE
+.classpath
+.factorypath
+.project
+.settings/
+
+# OMO temp
+.omo/
