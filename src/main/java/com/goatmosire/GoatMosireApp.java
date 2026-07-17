@@ -4,8 +4,12 @@ import com.goatmosire.config.GoatMosireConfig;
 import com.goatmosire.http.GoatmosireHttpServer;
 import com.goatmosire.mcp.McpServer;
 import com.goatmosire.service.MapService;
+import com.gsim.app.AppConfig;
+import com.gsim.app.GSimulatorApplication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
 
 /**
  * GoatMosire entry point.
@@ -32,6 +36,32 @@ public class GoatMosireApp {
         log.info("  HTTP mode: {} (port {})", config.httpMode(), config.httpPort());
         log.info("  MCP mode: {}", config.mcpMode());
 
+        // ── Embedded GSimulator HTTP API server (for LLM/Agent MCP tools) ──
+        GSimulatorApplication gsimApp = null;
+        int gsimPort = Integer.parseInt(System.getProperty("goatmosire.gsimPort",
+            System.getenv().getOrDefault("GOATMOSIRE_GSIM_PORT", "8710")));
+        if (!Boolean.parseBoolean(System.getProperty("goatmosire.noGsim", "false"))) {
+            System.setProperty("api.port", String.valueOf(gsimPort));
+            System.setProperty("api.enabled", "true");
+            System.setProperty("worlds.dir", config.worldsDir().toAbsolutePath().toString());
+            if (config.importDir() != null) {
+                System.setProperty("import.dir", config.importDir().toAbsolutePath().toString());
+            }
+            try {
+                final AppConfig gsimConfig = new AppConfig(
+                    new com.gsim.config.ConfigLoader(new String[0]).load());
+                final GSimulatorApplication app = new GSimulatorApplication(gsimConfig, false, true);
+                gsimApp = app;
+                new Thread(() -> {
+                    try { app.start(); } catch (Exception e) { log.error("GSim embed failed", e); }
+                }, "gsim-embed").start();
+                Thread.sleep(2000);
+                log.info("GSimulator HTTP API embedded on port {}", gsimPort);
+            } catch (Exception e) {
+                log.warn("Failed to start embedded GSimulator: {}", e.getMessage());
+            }
+        }
+
         // Start HTTP server
         GoatmosireHttpServer httpServer = null;
         if (config.httpMode()) {
@@ -56,10 +86,12 @@ public class GoatMosireApp {
         if (config.httpMode()) {
             final GoatmosireHttpServer hs = httpServer;
             final McpServer ms = mcpServer;
+            final GSimulatorApplication gs = gsimApp;
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("Shutting down...");
                 if (hs != null) hs.stop();
                 ms.stop();
+                if (gs != null) gs.stop();
             }));
             log.info("GoatMosire ready. Press Ctrl+C to stop.");
             Thread.currentThread().join();
@@ -87,8 +119,10 @@ public class GoatMosireApp {
                         
                         System properties:
                           -Dgoatmosire.worldsDir=<path>   GSim worlds directory (default: ./worlds)
-                          -Dgoatmosire.importDir=<path>   GSim import/docs directory (default: <worldsDir>/../import)
+                          -Dgoatmosire.importDir=<path>   GSim import/docs directory (default: ./import)
                           -Dgoatmosire.port=<port>        HTTP port (default: 8711)
+                          -Dgoatmosire.gsimPort=<port>    GSim embedded API port (default: 8710)
+                          -Dgoatmosire.noGsim=true        Disable embedded GSim API
                         """);
                     System.exit(0);
                 }
