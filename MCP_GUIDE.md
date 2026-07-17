@@ -72,12 +72,12 @@ GoatMosire 实现 **JSON-RPC 2.0**，通过 **stdio** 通信，协议版本 `202
 
 ---
 
-## 3. 工具总览（34 个）
+## 3. 工具总览（51 个）
 
 | 前缀 | 职责 | 数量 |
 |------|------|------|
 | `goatmosire_` | 地图查询 / 编辑 / 区域管理 / checkpoint 读写 | 22 |
-| `gsim_` | 世界浏览 / 节点元数据 / 搜索 / @ref / 文档管理 | 12 |
+| `gsim_` | 世界浏览 / 搜索 / @ref / 文档 / LLM / Agent / 配置 | 29 |
 
 `nodeId` 在所有工具中都是**可选参数**——不传则使用世界的活跃节点。
 
@@ -313,6 +313,64 @@ GoatMosire 实现 **JSON-RPC 2.0**，通过 **stdio** 通信，协议版本 `202
 // → {"totalLines":5,"content":"# 世界观设定\n...","ref":"@doc:设定.md"}
 ```
 
+### 5.6 LLM Provider 管理（6 个）
+
+> 通过 HTTP 转发调用 GSimulator 的 `/api/llm` 端点。需要 GSimulator (`gsim-app`) 运行在 `http://127.0.0.1:8710`。
+
+| 工具 | 描述 | 必需参数 |
+|------|------|----------|
+| `gsim_llm_list` | 列出所有已配置的 LLM Provider | — |
+| `gsim_llm_get` | 查看指定 Provider 详情 | `id` |
+| `gsim_llm_add` | 添加新 Provider | `id`, `baseUrl`, `model` |
+| `gsim_llm_update` | 修改 Provider 字段 | `id`, `field`, `value` |
+| `gsim_llm_delete` | 删除 Provider | `id` |
+| `gsim_llm_test` | 测试 Provider 连通性 | `id` |
+
+```json
+// 添加新 Provider
+{"name":"gsim_llm_add","arguments":{"id":"deepseek","baseUrl":"https://api.deepseek.com/v1","model":"deepseek-chat","apiKey":"sk-..."}}
+// → {"status":200,"data":{"ok":true}}
+
+// 测试连通性
+{"name":"gsim_llm_test","arguments":{"id":"deepseek"}}
+// → {"status":200,"data":{"ok":true,"latencyMs":234}}
+```
+
+### 5.7 Agent 生命周期管理（5 个）
+
+> 通过 HTTP 转发调用 GSimulator 的 `/api/agents` 端点。
+
+| 工具 | 描述 | 必需参数 |
+|------|------|----------|
+| `gsim_agent_list` | 列出所有 Agent 实例及状态 | — |
+| `gsim_agent_get` | 查看指定 Agent 详情 | `instanceId` |
+| `gsim_agent_run` | 启动新 Agent（异步） | `sessionId`, `input` |
+| `gsim_agent_cancel` | 取消运行中的 Agent | `instanceId` |
+| `gsim_agent_output` | 获取已完成 Agent 的输出 | `instanceId` |
+
+```json
+// 启动 Agent 推演
+{"name":"gsim_agent_run","arguments":{"sessionId":"default","input":"查看大汉的当前局势并给出战略建议","agentConfig":"strategist"}}
+// → {"instanceId":"agent-abc123","status":"RUNNING"}
+```
+
+### 5.8 Agent 配置管理（5 个）
+
+> 通过 HTTP 转发调用 GSimulator 的 `/api/agent-configs` 端点。
+
+| 工具 | 描述 | 必需参数 |
+|------|------|----------|
+| `gsim_agent_config_list` | 列出所有 Agent 配置 | — |
+| `gsim_agent_config_get` | 查看指定配置详情 | `configId` |
+| `gsim_agent_config_create` | 创建新配置 | `configId`, `persona` |
+| `gsim_agent_config_update` | 更新配置字段 | `configId` |
+| `gsim_agent_config_delete` | 删除配置 | `configId` |
+
+```json
+// 创建策略顾问配置
+{"name":"gsim_agent_config_create","arguments":{"configId":"strategist","name":"战略顾问","persona":"你是一位精通地缘政治与军事战略的顾问...","model":"deepseek-chat","temperature":0.3,"toolGroups":["simulation","knowledge","branch_memory"]}}
+```
+
 ---
 
 ## 6. 典型工作流
@@ -348,9 +406,22 @@ goatmosire_init_nation(name, seedQ, seedR, faction, narrative, capital)
     → 返回中心坐标和创建的元素列表
 ```
 
----
+### 6.4 LLM/Agent 配置与推演
 
-## 7. 地形类型参考
+```
+gsim_llm_list                    → 查看已有 LLM Provider
+gsim_llm_add(id,url,model,key)   → 配置新模型
+gsim_llm_test(id)                → 测试连通性
+    ↓
+gsim_agent_config_create(...)    → 创建 Agent 配置（角色、工具组）
+gsim_agent_config_list           → 确认配置就绪
+    ↓
+gsim_agent_run(session, input)   → 启动推演 Agent
+gsim_agent_get(instanceId)       → 轮询状态
+gsim_agent_output(instanceId)    → 获取推演结果
+```
+
+---
 
 | 地形 | 颜色 | 食物 | 金币 | 石材 | 移动消耗 |
 |------|------|------|------|------|----------|
