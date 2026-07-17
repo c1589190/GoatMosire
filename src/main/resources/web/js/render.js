@@ -48,24 +48,24 @@ function render() {
   ctx.strokeStyle = '#ffffff18';
   ctx.lineWidth = 0.5 / zoom;
 
-  // ── Pass 1: Compressed regions (background layer) ──
-  // Draw as filled polygons — one canvas fill per region (fast)
-  // Boundary coords use same GRID=30 as frontend hexToPixel
+  // ── Pass 1: Compressed regions as hex batches (no overlapping polygons) ──
+  // Each CR's hexes are drawn individually but batched by color.
+  // CRs sorted smallest→largest (server-side) ensures local features render on top.
+  const crByColor = {};
   for (const cr of (mapData.compressedRegions || [])) {
-    if (!cr.boundary || cr.boundary.length < 3) continue;
     const color = cr.color || getTerrainColor(cr.terrain);
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    const p0 = cr.boundary[0];
-    ctx.moveTo(p0.x, p0.y);
-    for (let i = 1; i < cr.boundary.length; i++) {
-      ctx.lineTo(cr.boundary[i].x, cr.boundary[i].y);
+    if (!crByColor[color]) crByColor[color] = [];
+    if (cr.hexKeys) {
+      for (const key of cr.hexKeys) {
+        const [q, r] = key.split('_').map(Number);
+        const {x, y} = hexToPixel(q, r);
+        if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
+        crByColor[color].push({x, y});
+        drawn++;
+      }
     }
-    ctx.closePath();
-    ctx.fill();
-    // Crude viewport cull: count hexKeys in view as "drawn" for status
-    drawn += cr.size || cr.hexKeys?.length || 0;
   }
+  drawHexBatch(crByColor);
 
   // ── Pass 2: Individual hexes (on top, override compressed) ──
   // Skip hexes already covered by a compressed region with matching terrain

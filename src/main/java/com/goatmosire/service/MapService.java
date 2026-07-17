@@ -2,6 +2,7 @@ package com.goatmosire.service;
 
 import com.gsim.map.*;
 import com.goatmosire.config.GoatMosireConfig;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -552,7 +553,7 @@ public class MapService {
 
     // ── Compression ───────────────────────────────────────
 
-    /** Compress large same-terrain regions in a node's map. Hexes stay in hexes(). */
+    /** Compress large same-terrain regions in the resolved map and store per-node. */
     public Map<String, Object> compress(String worldId, String nodeId, int minRegionSize) {
         MapData map = resolve(worldId, nodeId);
         if (map == null || map.hexes().isEmpty())
@@ -561,19 +562,13 @@ public class MapService {
         if (minRegionSize <= 0) minRegionSize = CompressionService.DEFAULT_MIN_REGION_SIZE;
 
         List<MapData.CompressedRegion> regions = CompressionService.compress(map, minRegionSize);
+        saveCr(worldId, nodeId, regions);
 
-        // Build updated MapData with new compressedRegions
-        MapData updated = new MapData(
-            map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), regions);
-        saveFull(worldId, nodeId, updated);
-
-        log.info("Compressed {}/{}: {} hexes, {} regions",
-            worldId, nodeId, map.hexes().size(), regions.size());
+        log.info("Compressed {}/{}: {} hexes, {} regions", worldId, nodeId, map.hexes().size(), regions.size());
 
         var result = new LinkedHashMap<String, Object>();
         result.put("ok", true);
+        result.put("nodeId", nodeId);
         result.put("hexCount", map.hexes().size());
         result.put("regions", regions.size());
         int compressedHexes = regions.stream().mapToInt(MapData.CompressedRegion::size).sum();
@@ -583,41 +578,92 @@ public class MapService {
         return result;
     }
 
-    /** Decompress a specific region by id (remove from compressedRegions list). */
+    /** Decompress a specific region by id (remove from per-node CR file). */
     public Map<String, Object> decompress(String worldId, String nodeId, String regionId) {
-        MapData map = resolve(worldId, nodeId);
-        List<MapData.CompressedRegion> regions = new ArrayList<>(map.compressedRegions());
+        List<MapData.CompressedRegion> regions = loadCr(worldId, nodeId);
+        if (regions.isEmpty())
+            return Map.of("ok", false, "error", "No compressed regions for node: " + nodeId);
 
-        int restored = CompressionService.decompress(regions, regionId);
+        List<MapData.CompressedRegion> mutable = new ArrayList<>(regions);
+        int restored = CompressionService.decompress(mutable, regionId);
         if (restored == 0)
             return Map.of("ok", false, "error", "Region not found: " + regionId);
 
-        MapData updated = new MapData(
-            map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), regions);
-        saveFull(worldId, nodeId, updated);
-        return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size());
+        saveCr(worldId, nodeId, mutable);
+        return Map.of("ok", true, "restored", restored, "regionsRemaining", mutable.size());
     }
 
-    /** Decompress the region covering hex (q, r). */
+    /** Decompress the region covering hex (q, r) — reads from per-node CR. */
     public Map<String, Object> decompressAt(String worldId, String nodeId, int q, int r) {
-        MapData map = resolve(worldId, nodeId);
-        List<MapData.CompressedRegion> regions = new ArrayList<>(map.compressedRegions());
-
+        List<MapData.CompressedRegion> regions = loadCr(worldId, nodeId);
         if (regions.isEmpty())
             return Map.of("ok", true, "note", "no compressed regions", "q", q, "r", r);
 
-        int restored = CompressionService.decompressAt(regions, q, r);
+        List<MapData.CompressedRegion> mutable = new ArrayList<>(regions);
+        int restored = CompressionService.decompressAt(mutable, q, r);
         if (restored == 0)
             return Map.of("ok", true, "note", "hex not in any compressed region", "q", q, "r", r);
 
-        MapData updated = new MapData(
-            map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), regions);
-        saveFull(worldId, nodeId, updated);
-        return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size(), "q", q, "r", r);
+        saveCr(worldId, nodeId, mutable);
+        return Map.of("ok", true, "restored", restored, "regionsRemaining", mutable.size(), "q", q, "r", r);
+    }
+
+    // ── Per-node CR file I/O ───────────────────────────────
+
+    private Path crPath(String worldId, String nodeId) {
+        return worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + "_cr.json");
+    }
+
+    private void saveCr(String worldId, String nodeId, List<MapData.CompressedRegion> regions) {
+        try {
+            Path path = crPath(worldId, nodeId);
+            Files.createDirectories(path.getParent());
+            MAPPER.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), regions);
+            log.info("Saved {} CRs to {}", regions.size(), path);
+        } catch (IOException e) {
+            log.error("Failed to save CRs for {}/{}", worldId, nodeId, e);
+        }
+    }
+
+    /**
+     * Load compressed regions for a node. Walks parent chain if this node has none.
+     * Returns the first CR set found, or empty list.
+     */
+    public List<MapData.CompressedRegion> loadCr(String worldId, String nodeId) {
+        // Try this node first
+        Path path = crPath(worldId, nodeId);
+        if (Files.exists(path)) {
+            try {
+                JsonNode arr = MAPPER.readTree(path.toFile());
+                if (arr.isArray()) {
+                    List<MapData.CompressedRegion> regions = new ArrayList<>();
+                    for (JsonNode n : arr) {
+                        regions.add(MAPPER.treeToValue(n, MapData.CompressedRegion.class));
+                    }
+                    return regions;
+                }
+            } catch (Exception e) {
+                log.warn("Failed to load CRs for {}/{}", worldId, nodeId, e);
+            }
+        }
+
+        // Fall back to parent
+        try {
+            Path nodeFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
+            if (Files.exists(nodeFile)) {
+                JsonNode node = MAPPER.readTree(nodeFile.toFile());
+                if (node.has("parentId") && !node.get("parentId").isNull()) {
+                    String parentId = node.get("parentId").asText();
+                    if (!parentId.isBlank() && !parentId.equals(nodeId)) {
+                        return loadCr(worldId, parentId);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read parent for CR fallback {}/{}", worldId, nodeId, e);
+        }
+
+        return List.of();
     }
 
     public void evict(String worldId, String nodeId) {
