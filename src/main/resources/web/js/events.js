@@ -223,13 +223,17 @@ async function loadMap() {
     // Build compressed region metadata for render optimization + UI
     // hexes() always contains ALL hexes (compression no longer removes them —
     // compressedRegions is a pure rendering cache, rebuilt by re-running compress)
-    mapData._compressedMeta = new Map();     // key → {regionId, terrain, color}
-    mapData._compressedById = new Map();      // regionId → {terrain, color, hexKeys: Set}
+    mapData._compressedMeta = new Map();
+    mapData._compressedById = new Map();
+    mapData._compressedOverlap = new Set();  // hexes in 2+ CRs — force individual draw
     if (mapData.compressedRegions) {
       for (const cr of mapData.compressedRegions) {
         const meta = {regionId: cr.id, terrain: cr.terrain, color: cr.color};
         mapData._compressedById.set(cr.id, {terrain: cr.terrain, color: cr.color, hexKeys: new Set(cr.hexKeys)});
         if (cr.hexKeys) for (const key of cr.hexKeys) {
+          if (mapData._compressedMeta.has(key)) {
+            mapData._compressedOverlap.add(key);  // appears in multiple CRs
+          }
           mapData._compressedMeta.set(key, meta);
         }
       }
