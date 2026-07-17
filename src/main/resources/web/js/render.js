@@ -69,10 +69,8 @@ function render() {
   // Skip hexes already covered by a compressed region with matching terrain
   const indByColor = {};
   for (const [key, cell] of entries) {
-    // Skip if covered by a compressed region with same terrain (and no multi-CR overlap)
     const crMeta = mapData._compressedMeta?.get(key);
-    const overlap = mapData._compressedOverlap?.has(key);
-    if (crMeta && !overlap && cell.terrain === crMeta.terrain) continue;
+    if (crMeta && cell.terrain === crMeta.terrain) continue;
     const [q, r] = key.split('_').map(Number);
     const {x, y} = hexToPixel(q, r);
     if (x < vpLeft || x > vpRight || y < vpTop || y > vpBottom) continue;
