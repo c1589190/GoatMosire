@@ -1,0 +1,10 @@
+{
+  "agentId" : "dongchuan",
+  "llmProvider" : "deepseek",
+  "temperature" : 0.7,
+  "maxTokens" : 1024,
+  "maxToolRounds" : 16,
+  "toolFilter" : {
+    "mode" : "read_only"
+  }
+}

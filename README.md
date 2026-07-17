@@ -17,13 +17,13 @@ GoatMosire provides a **hexagonal map editor** with an HTML5 Canvas frontend, a 
 
 - **Java 21+**
 - **Maven 3.9+**
-- [GSimulator](https://github.com/your-org/GSimulator) sibling repo with `gsim-core` built
+- [GSimulator](https://github.com/your-org/GSimulator) sibling repo with `gsim-mcp` built
 
 ### Build & Run
 
 ```bash
-# 1. Install gsim-core to local Maven repo (from sibling GSimulator project)
-cd ../GSimulator && mvn install -N && mvn install -pl gsim-core -DskipTests && cd -
+# 1. Install gsim-mcp to local Maven repo (single fat JAR — from sibling GSimulator project)
+cd ../GSimulator && mvn install -pl gsim-mcp -DskipTests && cd -
 
 # 2. Build GoatMosire (shaded JAR)
 cd GoatMosire && mvn package -DskipTests -q

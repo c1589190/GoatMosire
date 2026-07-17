@@ -31,7 +31,7 @@
                       │
 ┌─────────────────────┼────────────────────────────┐
 │  GSimulator         │                            │
-│  gsim-core          │                            │
+│  gsim-mcp (fat JAR) │                            │
 │  ┌──────────────────┴───────────────────────┐   │
 │  │  MapData · MapDiff · MapStore · MapResolver │  │
 │  │  worlds/{id}/nodes/{nid}_map.json          │  │
@@ -42,9 +42,9 @@
 ## 构建 & 运行
 
 ```bash
-# 1. 安装 gsim-core 到本地 Maven 仓库
+# 1. 安装 gsim-mcp 到本地 Maven 仓库
 cd GSimulator
-mvn install -N && mvn install -pl gsim-core -DskipTests
+mvn install -pl gsim-mcp -DskipTests
 
 # 2. 构建 GoatMosire
 cd GoatMosire
@@ -201,7 +201,7 @@ render()
 | 数据 | JSON 文件, Jackson 序列化 |
 | 前端 | Vanilla JS + HTML5 Canvas, 单文件无构建 |
 | 通信 | HTTP REST + MCP stdio JSON-RPC |
-| 依赖 | gsim-core (GSimulator 多模块项目) |
+| 依赖 | gsim-mcp (GSimulator 单一 fat JAR) |
 
 ## 设计原则
 

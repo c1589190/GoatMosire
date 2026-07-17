@@ -1,0 +1,10 @@
+{
+  "agentId" : "r35",
+  "llmProvider" : "base",
+  "temperature" : 0.7,
+  "maxTokens" : 800,
+  "maxToolRounds" : 16,
+  "toolFilter" : {
+    "mode" : "read_only"
+  }
+}

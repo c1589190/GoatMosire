@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-# Prerequisite: install gsim-core to local Maven repo (from sibling GSimulator project)
-cd ../GSimulator && mvn install -N && mvn install -pl gsim-core -DskipTests && cd -
+# Prerequisite: install gsim-mcp to local Maven repo (from sibling GSimulator project)
+cd ../GSimulator && mvn install -pl gsim-mcp -DskipTests && cd -
 
 # Build (shaded JAR, main class: com.goatmosire.GoatMosireApp)
 mvn package -DskipTests -q
@@ -23,7 +23,7 @@ java -jar target/goatmosire-0.1.0-SNAPSHOT.jar --http-only
 
 ## Architecture
 
-GoatMosire is a hex map editor and MCP bridge for GSimulator (a turn-based grand strategy engine). Tech: Java 21, Maven, **no Spring** — pure `jdk.httpserver` for HTTP, stdio JSON-RPC for MCP, vanilla JS + HTML5 Canvas for the frontend. Depends on `gsim-core` (local Maven artifact from a sibling GSimulator repo).
+GoatMosire is a hex map editor and MCP bridge for GSimulator (a turn-based grand strategy engine). Tech: Java 21, Maven, **no Spring** — pure `jdk.httpserver` for HTTP, stdio JSON-RPC for MCP, vanilla JS + HTML5 Canvas for the frontend. Depends on `gsim-mcp` (single fat JAR from sibling GSimulator repo, bundles gsim-core + gsim-app + all deps).
 
 ### Package layout
 

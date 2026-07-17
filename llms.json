@@ -1,0 +1,37 @@
+{
+  "version" : 1,
+  "providers" : [ {
+    "id" : "base",
+    "name" : "Base LLM",
+    "baseUrl" : "https://api.deepseek.com/v1",
+    "apiKey" : "",
+    "model" : "deepseek-v4-pro",
+    "defaultTemperature" : 0.3,
+    "defaultMaxTokens" : 4096,
+    "extraBody" : null,
+    "thinking" : null,
+    "isDefault" : false
+  }, {
+    "id" : "ds",
+    "name" : "ds",
+    "baseUrl" : "http://47.100.101.156:14514/v1",
+    "apiKey" : "sk-aUyn7KgsxCtKLznG6PRriSUBmrRKahVM3UFurObqy5hBbqbZ",
+    "model" : "deepseek-v4-flash",
+    "defaultTemperature" : 0.3,
+    "defaultMaxTokens" : 4096,
+    "extraBody" : null,
+    "thinking" : null,
+    "isDefault" : false
+  }, {
+    "id" : "deepseek",
+    "name" : "DS",
+    "baseUrl" : "http://47.100.101.156:14514/v1",
+    "apiKey" : "sk-aUyn7KgsxCtKLznG6PRriSUBmrRKahVM3UFurObqy5hBbqbZ",
+    "model" : "deepseek-v4-flash",
+    "defaultTemperature" : 0.3,
+    "defaultMaxTokens" : 4096,
+    "extraBody" : null,
+    "thinking" : null,
+    "isDefault" : false
+  } ]
+}

@@ -1,0 +1,11 @@
+{
+  "agentId" : "test-agent",
+  "llmProvider" : "deepseek",
+  "temperature" : 0.3,
+  "maxTokens" : 256,
+  "maxToolRounds" : 4,
+  "toolFilter" : {
+    "mode" : "read_only"
+  },
+  "staticSystemPrompt" : "你是一个简洁的历史顾问。用一句话回答。"
+}
