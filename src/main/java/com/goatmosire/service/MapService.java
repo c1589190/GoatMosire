@@ -434,11 +434,21 @@ public class MapService {
 
     // ── GSim Node Sync ────────────────────────────────────
 
-    /** Sync map data (regions, described hexes, cities) into the GSim node's "map" checkpoint. */
+    /** Sync map data into the GSim node's "map" checkpoint, then invalidate GSim cache. */
     public void syncToGSimNode(String worldId, String nodeId) {
         MapData map = resolve(worldId, nodeId);
         if (map == null || map.hexes().isEmpty()) return;
         nodeSyncService.sync(worldId, nodeId, map);
+        // Invalidate GSim API cache so HTTP responses reflect the latest changes
+        try {
+            java.net.http.HttpClient.newHttpClient().send(
+                java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("http://127.0.0.1:8710/api/world-manager/" + worldId + "/nodes/" + nodeId))
+                    .GET().build(),
+                java.net.http.HttpResponse.BodyHandlers.discarding());
+        } catch (Exception ignored) {
+            // GSim API not running or not embedded — ignore
+        }
     }
 
     // ── Map Expansion ──────────────────────────────────────
