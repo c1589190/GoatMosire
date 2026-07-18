@@ -1,6 +1,6 @@
 package com.goatmosire.service;
 
-import com.gsim.map.MapData;
+import com.goatmosire.map.MapData;
 import java.util.*;
 
 /**
@@ -162,24 +162,50 @@ public final class TerrainGeometry {
     }
 
     /**
-     * Reconstruct an OUTLINE polygon from a hex set by tracing exposed edges.
+     * Reconstruct boundary polygon(s) from a hex set by tracing exposed edges.
      * Works for concave shapes (unlike angular sort around centroid).
+     *
+     * <p>Returns ALL boundary loops: the outermost ring first, then hole rings.
+     * For a CR that wraps around other-terrain regions, the outer boundary alone
+     * would fill those regions — holes let the renderer carve them out via evenodd.
+     *
+     * @return list of boundary loops; first element is the outer ring, rest are holes
+     * @deprecated use {@link #hexSetToBoundaryWithHoles(Set)} for hole-aware rendering
      */
+    @Deprecated
     public static List<MapData.Pt> hexSetToBoundary(Set<String> hexSet) {
+        List<List<MapData.Pt>> all = hexSetToBoundaryWithHoles(hexSet);
+        if (all.isEmpty()) return List.of();
+        // For backward compat: return only the outer ring (largest BBox area)
+        List<MapData.Pt> best = all.get(0);
+        double bestArea = bboxArea(best);
+        for (int i = 1; i < all.size(); i++) {
+            double a = bboxArea(all.get(i));
+            if (a > bestArea) { best = all.get(i); bestArea = a; }
+        }
+        return best;
+    }
+
+    /**
+     * Reconstruct ALL boundary loops from a hex set — outer ring + hole rings.
+     * The first returned ring is the outer boundary (largest BBox area);
+     * subsequent rings are hole boundaries.  Use with Canvas evenodd fill
+     * to render polygons with holes correctly.
+     *
+     * <p>Each ring is a closed polygon (first point == last point).
+     */
+    public static List<List<MapData.Pt>> hexSetToBoundaryWithHoles(Set<String> hexSet) {
         if (hexSet == null || hexSet.size() < 3) return List.of();
         Set<String> set = new HashSet<>(hexSet);
 
-        // Collect exposed edge segments. Each edge is a line between two hex corners.
-        // Key: "x1_y1-x2_y2" (sorted) to deduplicate shared edges.
+        // Collect exposed edge segments.
         Map<String, double[]> edgeSegments = new LinkedHashMap<>();
 
         for (String key : set) {
             int[] h = parseHexKey(key);
-            double cx, cy;
             double[] pix = hexToPixel(h[0], h[1]);
-            cx = pix[0]; cy = pix[1];
+            double cx = pix[0], cy = pix[1];
 
-            // 6 corners of the hex (flat-top, same as frontend hexCorners)
             double[][] corners = new double[6][2];
             for (int i = 0; i < 6; i++) {
                 double angle = Math.toRadians(60 * i - 30);
@@ -187,19 +213,15 @@ public final class TerrainGeometry {
                 corners[i][1] = cy + SIZE * Math.sin(angle);
             }
 
-            // 6 edges: (0-1, 1-2, 2-3, 3-4, 4-5, 5-0) → direction d
-            // Edge d goes from corners[d] to corners[(d+1)%6]
             for (int d = 0; d < 6; d++) {
                 int nq = h[0] + DIRS[d][0];
                 int nr = h[1] + DIRS[d][1];
-                if (set.contains(hexKey(nq, nr))) continue; // shared edge, skip
+                if (set.contains(hexKey(nq, nr))) continue; // shared edge
 
-                int c1 = d;
-                int c2 = (d + 1) % 6;
+                int c1 = d, c2 = (d + 1) % 6;
                 double x1 = corners[c1][0], y1 = corners[c1][1];
                 double x2 = corners[c2][0], y2 = corners[c2][1];
 
-                // Canonical key using integer-micron coords (robust matching)
                 String k1 = cornerKey(x1, y1), k2 = cornerKey(x2, y2);
                 String segKey = k1.compareTo(k2) < 0 ? k1 + "-" + k2 : k2 + "-" + k1;
                 edgeSegments.putIfAbsent(segKey, new double[]{x1, y1, x2, y2});
@@ -208,7 +230,7 @@ public final class TerrainGeometry {
 
         if (edgeSegments.size() < 3) return List.of();
 
-        // Build adjacency: endpoint → list of connected endpoints (integer-micron keys)
+        // Build adjacency graph
         Map<String, List<String>> graph = new LinkedHashMap<>();
         for (double[] seg : edgeSegments.values()) {
             String a = cornerKey(seg[0], seg[1]);
@@ -217,8 +239,7 @@ public final class TerrainGeometry {
             graph.computeIfAbsent(b, k -> new ArrayList<>()).add(a);
         }
 
-        // Walk ALL connected boundary loops, return the outermost (largest bbox area).
-        // A polygon with holes produces multiple loops — we need the outer boundary for filling.
+        // Walk ALL disconnected boundary loops
         Set<String> globalVisited = new HashSet<>();
         List<List<MapData.Pt>> allLoops = new ArrayList<>();
 
@@ -237,7 +258,6 @@ public final class TerrainGeometry {
                     if (!globalVisited.contains(nb)) { next = nb; break; }
                 }
                 if (next == null) {
-                    // Close the loop
                     if (!loop.isEmpty()) {
                         loop.add(new MapData.Pt(loop.get(0).x(), loop.get(0).y()));
                     }
@@ -250,14 +270,9 @@ public final class TerrainGeometry {
 
         if (allLoops.isEmpty()) return List.of();
 
-        // Return the loop with the largest bounding-box area
-        List<MapData.Pt> best = allLoops.get(0);
-        double bestArea = bboxArea(best);
-        for (int i = 1; i < allLoops.size(); i++) {
-            double a = bboxArea(allLoops.get(i));
-            if (a > bestArea) { best = allLoops.get(i); bestArea = a; }
-        }
-        return best;
+        // Sort: outer ring (largest BBox area) first, then holes
+        allLoops.sort((a, b) -> Double.compare(bboxArea(b), bboxArea(a)));
+        return allLoops;
     }
 
     // Integer-micron keys for robust corner matching (avoid floating-point drift)

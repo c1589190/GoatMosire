@@ -1,7 +1,7 @@
 package com.goatmosire.service;
 
-import com.gsim.map.MapData;
-import com.gsim.map.MapData.CompressedRegion;
+import com.goatmosire.map.MapData;
+import com.goatmosire.map.MapData.CompressedRegion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,10 +71,11 @@ public class CompressionService {
                 String id = "cr" + regionCounter;
                 String color = seedCell.color() != null ? seedCell.color() : terrainColor(terrain);
                 boolean isWater = "water".equals(terrain);
-                List<MapData.Pt> boundary = TerrainGeometry.hexSetToBoundary(component);
+                List<List<MapData.Pt>> boundaries = TerrainGeometry.hexSetToBoundaryWithHoles(component);
+                List<MapData.Pt> outer = boundaries.isEmpty() ? List.of() : boundaries.get(0);
 
                 CompressedRegion cr = new CompressedRegion(
-                    id, terrain, color, boundary, isWater, component);
+                    id, terrain, color, outer, boundaries, isWater, component);
                 regions.add(cr);
 
                 log.debug("Compressed: {} ({}×{})", id, terrain, component.size());

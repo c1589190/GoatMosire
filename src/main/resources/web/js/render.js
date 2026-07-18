@@ -48,20 +48,37 @@ function render() {
   ctx.strokeStyle = '#ffffff18';
   ctx.lineWidth = 0.5 / zoom;
 
-  // ── Pass 1: Compressed regions as filled polygons (chain order = layered correctly) ──
-  // Root CRs drawn first, child CRs on top — natural diff override via painter's algorithm.
-  for (const cr of (mapData.compressedRegions || [])) {
-    if (!cr.boundary || cr.boundary.length < 3) continue;
+  // ── Pass 1: Compressed regions as filled polygons ──
+  // Sort by size ascending: small CRs drawn first (bottom), large CRs last (top).
+  // Uses evenodd fill so that hole rings (inner boundaries) properly carve out
+  // other-terrain regions enclosed by a CR.
+  const sortedCRs = (mapData.compressedRegions || [])
+    .filter(cr => {
+      const outer = cr.boundary;
+      return outer && outer.length >= 3;
+    })
+    .sort((a, b) => {
+      const sa = a.size || a.hexKeys?.length || 0;
+      const sb = b.size || b.hexKeys?.length || 0;
+      return sa - sb;
+    });
+  for (const cr of sortedCRs) {
     const color = cr.color || getTerrainColor(cr.terrain);
     ctx.fillStyle = color;
     ctx.beginPath();
-    const p0 = cr.boundary[0];
-    ctx.moveTo(p0.x, p0.y);
-    for (let i = 1; i < cr.boundary.length; i++) {
-      ctx.lineTo(cr.boundary[i].x, cr.boundary[i].y);
+    // Draw all boundary rings: outer ring + hole rings
+    const rings = (cr.boundaries && cr.boundaries.length > 0)
+      ? cr.boundaries
+      : [cr.boundary];
+    for (const ring of rings) {
+      if (!ring || ring.length < 3) continue;
+      ctx.moveTo(ring[0].x, ring[0].y);
+      for (let i = 1; i < ring.length; i++) {
+        ctx.lineTo(ring[i].x, ring[i].y);
+      }
     }
     ctx.closePath();
-    ctx.fill();
+    ctx.fill('evenodd');
     drawn += cr.size || cr.hexKeys?.length || 0;
   }
 
@@ -219,16 +236,28 @@ function renderProvinceHighlight() {
   ctx.fillRect(vl, vt, vr - vl, vb - vt);
 
   // Redraw compressed regions dimmed (show terrain through the dark overlay)
-  const crs = mapData.compressedRegions || [];
+  // Same size-ascending sort + evenodd fill as Pass 1
+  const crs = (mapData.compressedRegions || [])
+    .filter(cr => cr.boundary && cr.boundary.length >= 3)
+    .sort((a, b) => {
+      const sa = a.size || a.hexKeys?.length || 0;
+      const sb = b.size || b.hexKeys?.length || 0;
+      return sa - sb;
+    });
   if (crs.length > 0) {
     ctx.globalAlpha = 0.45;
     for (const cr of crs) {
-      if (!cr.boundary || cr.boundary.length < 3) continue;
       ctx.fillStyle = cr.color || getTerrainColor(cr.terrain);
       ctx.beginPath();
-      ctx.moveTo(cr.boundary[0].x, cr.boundary[0].y);
-      for (let i = 1; i < cr.boundary.length; i++) {
-        ctx.lineTo(cr.boundary[i].x, cr.boundary[i].y);
+      const rings = (cr.boundaries && cr.boundaries.length > 0)
+        ? cr.boundaries
+        : [cr.boundary];
+      for (const ring of rings) {
+        if (!ring || ring.length < 3) continue;
+        ctx.moveTo(ring[0].x, ring[0].y);
+        for (let i = 1; i < ring.length; i++) {
+          ctx.lineTo(ring[i].x, ring[i].y);
+        }
       }
       ctx.closePath();
       ctx.fill();

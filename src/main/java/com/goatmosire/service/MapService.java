@@ -53,13 +53,21 @@ public class MapService {
         return cache.computeIfAbsent(key, k -> loadMapData(worldId, nodeId));
     }
 
-    /** Load MapData. compressedRegions is now a native field — no stripping needed. */
+    /** Load MapData with CR validation and repair on every load. */
     private MapData loadMapData(String worldId, String nodeId) {
+        MapData map;
         if (isRootNode(worldId, nodeId)) {
-            return MapStore.loadFull(worldsDir, worldId, nodeId);
+            map = MapStore.loadFull(worldsDir, worldId, nodeId);
+        } else {
+            // Child node: use MapResolver for diff chain
+            map = MapResolver.resolve(worldsDir, worldId, nodeId);
         }
-        // Child node: use gsim-core MapResolver for diff chain
-        return MapResolver.resolve(worldsDir, worldId, nodeId);
+        // Transparently validate and repair CR boundaries on every load.
+        // This fixes legacy single-ring boundaries that lack hole rings.
+        if (map != null && !map.compressedRegions().isEmpty()) {
+            map = CompressionValidator.validateAndRepair(map);
+        }
+        return map;
     }
 
     private boolean isRootNode(String worldId, String nodeId) {
@@ -162,9 +170,12 @@ public class MapService {
         canvases.remove(worldId);
     }
 
-    /** Write terrain blocks back to MapData and persist (does NOT evict canvas). */
+    /** Write terrain blocks back to MapData and persist (does NOT evict canvas).
+     *  Terrain blocks are a world-level concept — saved to the active node and
+     *  inherited by child nodes through the diff chain. */
     private void persistBlocks(String worldId, TerrainCanvas canvas) {
         List<MapData.TerrainBlock> blocks = canvas.getBlocks();
+        String activeNodeId = readActiveNodeId(worldId);
         MapData map = resolveActive(worldId);
         if (map == null || map.hexes().isEmpty()) {
             map = MapData.empty();
@@ -174,10 +185,10 @@ public class MapService {
             blocks, map.provinces(), map.cities(),
             map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups()
         );
-        // Save directly to disk without evicting the canvas cache
-        MapStore.saveFull(worldsDir, worldId, "n0000", updated);
-        // Update the in-memory MapData cache
-        cache.put(cacheKey(worldId, "n0000"), updated);
+        // Save to the active node (typically root, but respects current active node)
+        MapStore.saveFull(worldsDir, worldId, activeNodeId, updated);
+        // Update in-memory cache for the saved node and evict descendants (they'll re-resolve)
+        evict(worldId, activeNodeId);
     }
 
     // ── Mutation ──────────────────────────────────────────
