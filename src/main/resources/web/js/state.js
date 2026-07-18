@@ -25,12 +25,18 @@ let activeTag = null;
 let clickHex = null;
 let selectedCompressedRegion = null;  // region id selected for border highlight
 
+// Pathway state (see js/pathway.js)
+let activePathwayGroup = 'river';
+let pathwayStart = null;
+let pathwayHighlightMode = false;
+
 let provinceLasso = [];
 let relassoTarget = null;
 let zoom = 1;
 let offX = 0, offY = 0;
 let mouseDown = false;
 let panStart = null, panOff = null;
+let mouseButton = 0; // 0=left, 2=right — which button initiated mousedown
 let lastHex = null;
 
 // ── DOM Refs ───────────────────────────────────────────

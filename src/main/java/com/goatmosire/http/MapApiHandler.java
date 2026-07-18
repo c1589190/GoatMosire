@@ -1,7 +1,7 @@
 package com.goatmosire.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gsim.map.*;
+import com.goatmosire.map.*;
 import com.goatmosire.service.MapService;
 import com.goatmosire.service.MapGenerator;
 import com.goatmosire.service.ContinentContour;
@@ -66,6 +66,8 @@ public class MapApiHandler implements HttpHandler {
                 handleHistory(exchange, sub, params);
             } else if (sub.endsWith("/nodes")) {
                 handleNodes(exchange, sub);
+            } else if (sub.endsWith("/pathway-groups")) {
+                handlePathwayGroups(exchange, sub, params);
             } else if (sub.endsWith("/river-path")) {
                 handleRiverPath(exchange, sub, params);
             } else if (sub.endsWith("/generate")) {
@@ -627,6 +629,27 @@ public class MapApiHandler implements HttpHandler {
             canvas.addBlock(terrain, pts, seedKey);
         }
     }
+    // ── GET/PUT  /api/map/{worldId}/pathway-groups ─────────
+
+    private void handlePathwayGroups(HttpExchange exchange, String sub, Map<String, String> params) throws IOException {
+        String worldId = sub.substring(1, sub.indexOf("/pathway-groups"));
+        String method = exchange.getRequestMethod();
+
+        if ("GET".equals(method)) {
+            MapData map = mapService.resolveActive(worldId);
+            Map<String, MapData.PathwayGroup> groups = map != null && map.pathwayGroups() != null
+                ? map.pathwayGroups() : MapData.defaultPathwayGroups();
+            sendJson(exchange, 200, groups);
+        } else if ("PUT".equals(method)) {
+            Map<String, MapData.PathwayGroup> body = MAPPER.readValue(exchange.getRequestBody(),
+                MAPPER.getTypeFactory().constructMapType(Map.class, String.class, MapData.PathwayGroup.class));
+            mapService.updatePathwayGroups(worldId, body);
+            sendJson(exchange, 200, Map.of("ok", true));
+        } else {
+            sendError(exchange, 405, "Method not allowed: " + method);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────
 
     private void sendJson(HttpExchange exchange, int status, Object data) throws IOException {

@@ -47,20 +47,20 @@ public class ContourQueryEngine {
     }
 
     /** Bulk-query a region and return as MapData (for legacy full-map consumers) */
-    public com.gsim.map.MapData materialize(int minQ, int maxQ, int minR, int maxR) {
-        var hexes = new LinkedHashMap<String, com.gsim.map.MapData.HexCell>();
+    public com.goatmosire.map.MapData materialize(int minQ, int maxQ, int minR, int maxR) {
+        var hexes = new LinkedHashMap<String, com.goatmosire.map.MapData.HexCell>();
         for (int q = minQ; q <= maxQ; q++) {
             for (int r = minR; r <= maxR; r++) {
                 int s = -(q + r);
                 if (Math.abs(q) + Math.abs(r) + Math.abs(s) > 2 * contour.radius) continue;
                 TerrainSample ts = query(q, r);
                 hexes.put(q + "_" + r,
-                    new com.gsim.map.MapData.HexCell(ts.color, ts.terrain, null, null, "", 0));
+                    new com.goatmosire.map.MapData.HexCell(ts.color, ts.terrain, null, null, "", 0, Map.of()));
             }
         }
-        return new com.gsim.map.MapData(30, false, hexes, List.of(),
+        return new com.goatmosire.map.MapData(30, false, hexes, List.of(),
             new LinkedHashMap<>(), new LinkedHashMap<>(), List.of(), List.of(),
-            MapGenerator.defaultTerrainTypes(), List.of());
+            MapGenerator.defaultTerrainTypes(), List.of(), new LinkedHashMap<>());
     }
 
     // ═══════════════════════════════════════════════════════

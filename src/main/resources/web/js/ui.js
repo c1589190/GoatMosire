@@ -1,17 +1,26 @@
 // ── Tool Switcher ──────────────────────────────────────
 function setTool(t) {
   tool = t;
-  document.getElementById('btnPen').classList.toggle('active', t==='pen');
-  document.getElementById('btnFill').classList.toggle('active', t==='fill');
-  document.getElementById('btnEraser').classList.toggle('active', t==='eraser');
-  document.getElementById('btnRiver').classList.toggle('active', t==='river');
-  document.getElementById('btnProvince').classList.toggle('active', t==='province');
-  document.getElementById('btnMapEdit').classList.toggle('active', t==='mapedit');
+  ['btnPen','btnFill','btnEraser','btnRiver','btnProvince','btnPathway','btnMapEdit'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', false);
+  });
+  const activeBtn = document.getElementById(
+    t==='pen'?'btnPen':t==='fill'?'btnFill':t==='eraser'?'btnEraser':t==='river'?'btnRiver':t==='province'?'btnProvince':t==='pathway'?'btnPathway':'btnMapEdit');
+  if (activeBtn) activeBtn.classList.add('active');
   riverStart = null;
   provinceLasso = [];
   lassoPts = [];
   if (t !== 'province') { relassoTarget = null; selectedProvince = null; activeTag = null; }
-  if (t === 'province') {
+  if (t === 'pathway') {
+    // Show both panels: left = group detail, right = group list
+    showPathwayGroupList();
+    if (activePathwayGroup) showPathwayGroupDetail(activePathwayGroup);
+    document.getElementById('leftPanel').style.display = 'block';
+    document.getElementById('rightPanel').style.display = 'block';
+    document.getElementById('mapEditPanel').style.display = 'none';
+    pathwayStart = null;
+  } else if (t === 'province') {
     showTagList();
     document.getElementById('rightPanel').style.display = 'block';
     document.getElementById('mapEditPanel').style.display = 'none';

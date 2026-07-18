@@ -1,4 +1,7 @@
 // ── River Tool ─────────────────────────────────────────
+// @deprecated — 已迁移至 js/pathway.js，请使用通路编辑模式。
+// 此文件保留用于向后兼容：addRiverWaypoint / renderRivers
+// 仍然可被旧代码调用，但新功能应使用 pathway.js 中的函数。
 let riverStart = null;
 
 function addRiverWaypoint(q, r) {

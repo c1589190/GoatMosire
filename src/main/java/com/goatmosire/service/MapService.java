@@ -1,6 +1,6 @@
 package com.goatmosire.service;
 
-import com.gsim.map.*;
+import com.goatmosire.map.*;
 import com.goatmosire.config.GoatMosireConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -172,7 +172,7 @@ public class MapService {
         MapData updated = new MapData(
             map.gridSize(), map.hexOrientation(), map.hexes(),
             blocks, map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions()
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups()
         );
         // Save directly to disk without evicting the canvas cache
         MapStore.saveFull(worldsDir, worldId, "n0000", updated);
@@ -186,6 +186,22 @@ public class MapService {
     public void saveFull(String worldId, String nodeId, MapData data) {
         MapStore.saveFull(worldsDir, worldId, nodeId, data);
         evict(worldId, nodeId);
+    }
+
+    /** Update pathway groups for a world — replaces the entire groups map and persists. */
+    public void updatePathwayGroups(String worldId, Map<String, MapData.PathwayGroup> groups) {
+        String nodeId = readActiveNodeId(worldId);
+        if (nodeId == null) nodeId = "n0000";
+        MapData map = resolveActive(worldId);
+        if (map == null || map.hexes().isEmpty()) {
+            map = MapData.empty();
+        }
+        MapData updated = new MapData(
+            map.gridSize(), map.hexOrientation(), map.hexes(),
+            map.terrainBlocks(), map.provinces(), map.cities(),
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), groups
+        );
+        saveFull(worldId, nodeId, updated);
     }
 
     /** Save a diff (for child nodes). */
@@ -414,7 +430,7 @@ public class MapService {
         }
         MapData newMap = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), updated, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
         saveFull(worldId, nodeId, newMap);
 
         // 2. Update checkpoint references in node JSON
@@ -530,7 +546,7 @@ public class MapService {
                     color = "#5B8C3E";
                 }
                 int riverMask = 0;
-                newHexes.put(key, new MapData.HexCell(color, terrain, null, null, "", riverMask));
+                newHexes.put(key, new MapData.HexCell(color, terrain, null, null, "", riverMask, Map.of()));
                 added++;
                 if ("water".equals(terrain)) waterAdded++;
                 else landAdded++;
@@ -540,7 +556,7 @@ public class MapService {
         int hexesBefore = map.hexes().size();
         MapData expanded = new MapData(map.gridSize(), map.hexOrientation(), newHexes,
             map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions());
+            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
         saveFull(worldId, nodeId, expanded);
 
         log.info("Expanded {} → {} ({} new hexes: {} land + {} water), new center=({},{}), radius={}",
@@ -576,7 +592,7 @@ public class MapService {
         MapData updated = new MapData(
             map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), regions);
+            map.rivers(), map.roads(), map.terrainTypes(), regions, map.pathwayGroups());
 
         if (isRootNode(worldId, nodeId)) {
             saveFull(worldId, nodeId, updated);
@@ -615,7 +631,7 @@ public class MapService {
         MapData updated = new MapData(
             map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), regions);
+            map.rivers(), map.roads(), map.terrainTypes(), regions, map.pathwayGroups());
         saveFull(worldId, nodeId, updated);
         return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size());
     }
@@ -634,7 +650,7 @@ public class MapService {
         MapData updated = new MapData(
             map.gridSize(), map.hexOrientation(), map.hexes(),
             map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), regions);
+            map.rivers(), map.roads(), map.terrainTypes(), regions, map.pathwayGroups());
         saveFull(worldId, nodeId, updated);
         return Map.of("ok", true, "restored", restored, "regionsRemaining", regions.size(), "q", q, "r", r);
     }
@@ -656,14 +672,27 @@ public class MapService {
 
     private String readActiveNodeId(String worldId) {
         Path activeFile = worldsDir.resolve(worldId).resolve("active.json");
-        if (!Files.exists(activeFile)) return null;
+        Path nodesDir = worldsDir.resolve(worldId).resolve("nodes");
+        if (!Files.exists(activeFile)) return "n0000";
         try {
-            var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(activeFile.toFile());
-            if (node.has("nodeId")) return node.get("nodeId").asText();
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = mapper.readTree(activeFile.toFile());
+            if (node.has("nodeId")) {
+                String nid = node.get("nodeId").asText();
+                // Validate: node file must actually exist
+                Path nodeFile = nodesDir.resolve(nid + ".json");
+                if (Files.exists(nodeFile)) return nid;
+                log.warn("Active node {} for world {} does not exist, falling back to n0000", nid, worldId);
+                // Auto-fix stale active.json
+                var fixed = mapper.createObjectNode();
+                fixed.put("nodeId", "n0000");
+                fixed.putObject("sessions");
+                mapper.writeValue(activeFile.toFile(), fixed);
+            }
         } catch (Exception e) {
             log.warn("Failed to read active.json for world {}", worldId, e);
         }
-        return null;
+        return "n0000";
     }
 
     private String readParentId(String worldId, String nodeId) {

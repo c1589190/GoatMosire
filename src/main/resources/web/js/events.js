@@ -8,6 +8,12 @@ canvas.addEventListener('mousedown', e => {
       if (h) addProvincePoint(h.q, h.r);
       return;
     }
+    if (tool === 'pathway') {
+      mouseDown = true; mouseButton = 2;
+      const h = getHexAtEvent(e);
+      if (h) addPathwayWaypoint(h.q, h.r, activePathwayGroup);
+      return;
+    }
     if (tool === 'river') return;
     mouseDown = true;
     clickHex = getHexAtEvent(e);
@@ -15,6 +21,15 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   if (e.button === 0) {
+    if (tool === 'pathway') {
+      // Check if clicked on a thick segment to delete
+      const seg = findSegmentAtPixel(e.clientX, e.clientY, activePathwayGroup);
+      if (seg) {
+        mouseDown = true; mouseButton = 0;
+        removePathwaySegment(seg.q, seg.r, seg.edge, seg.tag);
+        return;
+      }
+    }
     if (tool === 'province' && selectedProvince && canvas._boundaryHexes) {
       const h = getHexAtEvent(e);
       if (h) {
@@ -74,9 +89,21 @@ canvas.addEventListener('mousemove', e => {
     const tt = terrainTypes[tn];
     tooltip.textContent = `(${h.q},${h.r}) ${tn}` + (tt ? ` \u{1F56F}${tt.food} \u{1F4B0}${tt.gold} \u{1FAA8}${tt.stone}` : '');
     if (mouseDown && (h.q !== clickHex?.q || h.r !== clickHex?.r)) { clickHex = null; }
-    if (mouseDown && tool !== 'river' && tool !== 'province') applyTool(h.q, h.r);
+    if (mouseDown && tool !== 'river' && tool !== 'province' && tool !== 'pathway') applyTool(h.q, h.r);
     if (tool === 'province' && !dragPoint && provinceLasso.length === 0) {
       canvas.style.cursor = findProvinceAt(h.q, h.r) ? 'pointer' : 'crosshair';
+    }
+    if (tool === 'pathway') {
+      if (mouseDown && mouseButton === 2) {
+        // Right-drag: continuously create pathway segments
+        addPathwayWaypoint(h.q, h.r, activePathwayGroup);
+      } else if (mouseDown && mouseButton === 0) {
+        // Left-drag: continuously delete segments under cursor
+        const seg = findSegmentAtPixel(e.clientX, e.clientY, activePathwayGroup);
+        if (seg) removePathwaySegment(seg.q, seg.r, seg.edge, seg.tag);
+      }
+      const seg = findSegmentAtPixel(e.clientX, e.clientY, activePathwayGroup);
+      canvas.style.cursor = seg ? 'pointer' : 'crosshair';
     }
   } else { tooltip.style.display = 'none'; canvas.style.cursor = ''; }
 });
@@ -89,8 +116,8 @@ canvas.addEventListener('mouseup', e => {
   }
   provinceLasso = [];
   if (dragPoint) { dragPoint = null; render(); return; }
-  if (clickHex && tool === 'river') {
-    addRiverWaypoint(clickHex.q, clickHex.r);
+  if (clickHex && tool === 'pathway') {
+    // In pathway mode, clicking (left) on empty space does nothing special
   } else if (clickHex && tool === 'province') {
     const found = findProvinceAt(clickHex.q, clickHex.r);
     if (found) { selectProvince(found); }
@@ -102,10 +129,10 @@ canvas.addEventListener('mouseup', e => {
     selectedCompressedRegion = crMeta ? crMeta.regionId : null;
     if (selectedCompressedRegion !== prev) render();
   }
-  mouseDown = false; panStart = null; clickHex = null;
+  mouseDown = false; panStart = null; clickHex = null; mouseButton = 0;
 });
 
-canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;tooltip.style.display='none';});
+canvas.addEventListener('mouseleave', ()=>{mouseDown=false;panStart=null;mouseButton=0;tooltip.style.display='none';});
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const zf = e.deltaY < 0 ? 1.1 : 1/1.1;
@@ -132,7 +159,7 @@ async function init() {
   window.addEventListener('resize', resizeCanvas);
   try { resizeCanvas(); } catch(e) {}
 
-  mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
+  mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[], pathwayGroups:{river:{id:'river',name:'河流',color:'#3295D2',description:'天然水系',visible:true},road:{id:'road',name:'道路',color:'#8B7355',description:'陆路通道',visible:true}}};
   initTags();
   setStatus('空画布就绪 — 右键拖动圈地形');
 
@@ -219,6 +246,9 @@ async function loadMap() {
     if (!mapData.terrainBlocks) mapData.terrainBlocks = [];
     if (!mapData.hexes) mapData.hexes = {};
     if (!mapData.tags) mapData.tags = {};
+    if (!mapData.pathwayGroups || Object.keys(mapData.pathwayGroups).length === 0) {
+      mapData.pathwayGroups = {river:{id:'river',name:'河流',color:'#3295D2',description:'天然水系',visible:true},road:{id:'road',name:'道路',color:'#8B7355',description:'陆路通道',visible:true}};
+    }
 
     // Build compressed region metadata for render optimization + UI
     // hexes() always contains ALL hexes (compression no longer removes them —
@@ -240,7 +270,7 @@ async function loadMap() {
     }
     setStatus(`已加载: ${MapAPI.worldId}`);
   } catch(e) {
-    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[]};
+    mapData = {hexes:{}, terrainBlocks:[], provinces:{}, tags:{}, cities:{}, terrainTypes:{...DEFAULT_TERRAINS}, gridSize:120, hexOrientation:false, rivers:[], roads:[], pathwayGroups:{river:{id:'river',name:'河流',color:'#3295D2',description:'天然水系',visible:true},road:{id:'road',name:'道路',color:'#8B7355',description:'陆路通道',visible:true}}};
     loadTags();
     buildTerrainButtons(DEFAULT_TERRAINS);
     setStatus('空画布 — 点 🎲 生成新大陆');

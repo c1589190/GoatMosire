@@ -110,7 +110,7 @@ function render() {
 
   ctx.restore();
   renderCompressedRegionBorder();
-  renderRivers();
+  renderPathways();
   renderProvinceHighlight();
 }
 
