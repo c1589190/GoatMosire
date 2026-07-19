@@ -2,30 +2,36 @@ package com.goatmosire.http;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Map;
 
 /**
  * Serves static files from the web/ resource directory.
  * Maps / → /index.html for the map editor.
  */
-public class StaticFileHandler implements HttpHandler {
+public final class StaticFileHandler implements HttpHandler {
 
     private static final String WEB_ROOT = "/web";
     private static final Map<String, String> MIME = Map.of(
-        "html", "text/html; charset=utf-8",
-        "css", "text/css; charset=utf-8",
-        "js", "application/javascript; charset=utf-8",
-        "json", "application/json",
-        "png", "image/png",
-        "svg", "image/svg+xml"
-    );
+            "html", "text/html; charset=utf-8",
+            "css", "text/css; charset=utf-8",
+            "js", "application/javascript; charset=utf-8",
+            "json", "application/json",
+            "png", "image/png",
+            "svg", "image/svg+xml");
 
+    /**
+     * Serves the requested static file from classpath {@code /web/}.
+     * Falls back to {@code /web/index.html} for SPA routing when the
+     * requested path has no file extension. Returns 404 when no resource
+     * is found.
+     *
+     * @param exchange the HTTP exchange
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void handle(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
@@ -49,14 +55,17 @@ public class StaticFileHandler implements HttpHandler {
             }
         }
 
-        String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase();
-        String contentType = MIME.getOrDefault(ext, "application/octet-stream");
-        exchange.getResponseHeaders().set("Content-Type", contentType);
+        // Read and serve — wrap InputStream in try-with-resources
+        try (InputStream in = is) {
+            String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+            String contentType = MIME.getOrDefault(ext, "application/octet-stream");
+            exchange.getResponseHeaders().set("Content-Type", contentType);
 
-        byte[] bytes = is.readAllBytes();
-        exchange.sendResponseHeaders(200, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
+            byte[] bytes = in.readAllBytes();
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
         }
     }
 }

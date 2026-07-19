@@ -1,8 +1,11 @@
 package com.goatmosire.service;
 
 /**
- * Simplex-like 2D gradient noise.
+ * Simplex-like 2D gradient noise using seeded pseudo-random gradients.
  * Shared by {@link MapGenerator} and {@link ContourQueryEngine}.
+ *
+ * <p>Each point's gradient direction is derived from a hash of its integer
+ * coordinates plus the seed, giving deterministic output per seed.
  */
 final class SimplexNoise {
     private final long seed;
@@ -12,13 +15,16 @@ final class SimplexNoise {
     }
 
     double noise2(double x, double y) {
-        int xi = (int) Math.floor(x), yi = (int) Math.floor(y);
-        double xf = x - xi, yf = y - yi;
+        int xi = (int) Math.floor(x);
+        int yi = (int) Math.floor(y);
+        double xf = x - xi;
+        double yf = y - yi;
         double n00 = dotGrid(xi, yi, xf, yf);
         double n10 = dotGrid(xi + 1, yi, xf - 1, yf);
         double n01 = dotGrid(xi, yi + 1, xf, yf - 1);
         double n11 = dotGrid(xi + 1, yi + 1, xf - 1, yf - 1);
-        double u = smooth(xf), v = smooth(yf);
+        double u = smooth(xf);
+        double v = smooth(yf);
         return lerp(lerp(n00, n10, u), lerp(n01, n11, u), v);
     }
 

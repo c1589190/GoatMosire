@@ -1,7 +1,14 @@
 package com.goatmosire.service;
 
-import com.gsim.map.MapData;
-import java.util.*;
+import com.goatmosire.map.MapData;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Closes lasso by bridging consecutive hexes (in draw order) with
@@ -9,12 +16,20 @@ import java.util.*;
  */
 public final class LassoProcessor {
 
-    private LassoProcessor() {}
+    private LassoProcessor() {
+        // utility class
+    }
 
-    private static final int[][] DIRS = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+    private static final int[][] DIRS = {{1, 0}, {1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1}};
     private static final int MAX_RADIUS = 200;
     private static final int MAX_FILL = 30000;
 
+    /**
+     * Compute the flood-filled hex set from a lasso's perimeter hex keys.
+     * Bridges consecutive hexes with Bresenham lines, then flood-fills interior.
+     * @param rawKeys lasso perimeter hex keys in draw order
+     * @return the set of hex keys inside the closed lasso, or empty if invalid
+     */
     public static Set<String> fill(List<String> rawKeys) {
         if (rawKeys == null || rawKeys.size() < 3) return Collections.emptySet();
 
@@ -22,27 +37,33 @@ public final class LassoProcessor {
         List<int[]> pts = new ArrayList<>();
         for (String k : rawKeys) {
             int[] qr = MapData.parseHexKey(k);
-            if (Math.abs(qr[0]) <= MAX_RADIUS && Math.abs(qr[1]) <= MAX_RADIUS)
-                pts.add(qr);
+            if (Math.abs(qr[0]) <= MAX_RADIUS && Math.abs(qr[1]) <= MAX_RADIUS) pts.add(qr);
         }
         if (pts.size() < 3) return Collections.emptySet();
 
         // Build wall: lasso hexes + Bresenham bridges between consecutive points
         Set<String> wall = new LinkedHashSet<>();
         List<int[]> deduped = deduplicate(pts);
-        for (int[] p : deduped) wall.add(p[0] + "_" + p[1]);
+        for (int[] p : deduped) {
+            wall.add(p[0] + "_" + p[1]);
+        }
         // Bridge consecutive hexes (including last→first)
         for (int i = 0; i < deduped.size(); i++) {
             int[] a = deduped.get(i);
             int[] b = deduped.get((i + 1) % deduped.size());
             if (hexDist(a[0], a[1], b[0], b[1]) <= 1) continue;
-            for (String k : hexLineBresenham(a[0], a[1], b[0], b[1]))
+            for (String k : hexLineBresenham(a[0], a[1], b[0], b[1])) {
                 wall.add(k);
+            }
         }
 
         // Find seed: centroid of wall
-        double sq = 0, sr = 0;
-        for (int[] p : deduped) { sq += p[0]; sr += p[1]; }
+        double sq = 0;
+        double sr = 0;
+        for (int[] p : deduped) {
+            sq += p[0];
+            sr += p[1];
+        }
         int seedQ = (int) Math.round(sq / deduped.size());
         int seedR = (int) Math.round(sr / deduped.size());
         String seed = seedQ + "_" + seedR;
@@ -64,7 +85,7 @@ public final class LassoProcessor {
             if (Math.abs(qr[0]) > MAX_RADIUS || Math.abs(qr[1]) > MAX_RADIUS) continue;
             filled.add(key);
             for (int[] d : DIRS) {
-                String nk = (qr[0]+d[0]) + "_" + (qr[1]+d[1]);
+                String nk = (qr[0] + d[0]) + "_" + (qr[1] + d[1]);
                 if (!filled.contains(nk) && !wall.contains(nk)) stack.push(nk);
             }
         }
@@ -104,11 +125,18 @@ public final class LassoProcessor {
     private static List<String> hexLineBresenham(int aq, int ar, int bq, int br) {
         List<String> line = new ArrayList<>();
         int dist = hexDist(aq, ar, bq, br);
-        if (dist == 0) { line.add(aq + "_" + ar); return line; }
+        if (dist == 0) {
+            line.add(aq + "_" + ar);
+            return line;
+        }
 
         // Convert to cube coords
-        int ax = aq, ay = ar, az = -aq - ar;
-        int bx = bq, by = br, bz = -bq - br;
+        int ax = aq;
+        int ay = ar;
+        int az = -aq - ar;
+        int bx = bq;
+        int by = br;
+        int bz = -bq - br;
 
         for (int i = 0; i <= dist; i++) {
             double t = (double) i / dist;
@@ -130,11 +158,11 @@ public final class LassoProcessor {
         double dz = Math.abs(rz - fz);
         if (dx > dy && dx > dz) rx = -ry - rz;
         else if (dy > dz) ry = -rx - rz;
-        else rz = -rx - ry;
-        return new int[]{rx, ry};
+        // rz is not reassigned — the else branch is a no-op for the return value
+        return new int[] {rx, ry};
     }
 
     private static int hexDist(int aq, int ar, int bq, int br) {
-        return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq-ar + bq+br)) / 2;
+        return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq - ar + bq + br)) / 2;
     }
 }

@@ -1,7 +1,13 @@
 package com.goatmosire.service;
 
-import com.gsim.map.MapData;
-import java.util.*;
+import com.goatmosire.map.MapData;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -29,21 +35,33 @@ public class TerrainCanvas {
 
     /** Managed block with mutable cache. */
     static class Block {
-        final String id;
-        final String terrain;
-        volatile List<MapData.Pt> boundary;       // polygon in pixel coords
-        final String seedKey;
-        final long createdAt;
+        private final String id;
+        private final String terrain;
+        private volatile List<MapData.Pt> boundary; // polygon in pixel coords
+        private final String seedKey;
+        private volatile Set<String> hexSet;
 
-        /** Cached hex set — lazily computed, invalidated on geometry change. */
-        volatile Set<String> hexSet;
+        String getId() {
+            return id;
+        }
+
+        String getTerrain() {
+            return terrain;
+        }
+
+        List<MapData.Pt> getBoundary() {
+            return boundary;
+        }
+
+        String getSeedKey() {
+            return seedKey;
+        }
 
         Block(String id, String terrain, List<MapData.Pt> boundary, String seedKey) {
             this.id = id;
             this.terrain = terrain;
             this.boundary = new ArrayList<>(boundary);
             this.seedKey = seedKey;
-            this.createdAt = System.currentTimeMillis();
         }
 
         Set<String> hexSet(int mapRadius) {
@@ -60,7 +78,9 @@ public class TerrainCanvas {
             return hs;
         }
 
-        void invalidateCache() { hexSet = null; }
+        void invalidateCache() {
+            hexSet = null;
+        }
 
         MapData.TerrainBlock toGsimBlock(int mapRadius) {
             Set<String> hs = hexSet(mapRadius);
@@ -76,14 +96,27 @@ public class TerrainCanvas {
     private final int mapRadius;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    public TerrainCanvas() { this(DEFAULT_MAP_RADIUS); }
-    public TerrainCanvas(int mapRadius) { this.mapRadius = mapRadius; }
+    /** Create a canvas with the default map radius. */
+    public TerrainCanvas() {
+        this(DEFAULT_MAP_RADIUS);
+    }
+
+    /**
+     * Create a canvas with a specific map radius.
+     * @param mapRadius hex coordinate bound for flood fill operations
+     */
+    public TerrainCanvas(int mapRadius) {
+        this.mapRadius = mapRadius;
+    }
 
     // ── Query ──────────────────────────────────────────────────
 
     /**
      * Return the terrain attribute for a hex, or {@code null} for empty.
      * Topmost (last) block that contains the hex wins.
+     * @param q hex axial q coordinate
+     * @param r hex axial r coordinate
+     * @return terrain type string, or null if no block covers this hex
      */
     public String queryHex(int q, int r) {
         double[] px = TerrainGeometry.hexToPixel(q, r);
@@ -92,6 +125,9 @@ public class TerrainCanvas {
 
     /**
      * Return the terrain attribute for a pixel point, or {@code null} for empty.
+     * @param px pixel x coordinate
+     * @param py pixel y coordinate
+     * @return terrain type string, or null if no block covers this point
      */
     public String queryPixel(double px, double py) {
         return queryPoint(px, py);
@@ -118,23 +154,6 @@ public class TerrainCanvas {
         return TerrainGeometry.hexKey(h[0], h[1]);
     }
 
-    /** Efficient bulk query: check if a hex center is inside any block. */
-    private boolean anyBlockContains(int q, int r) {
-        double px = q + r * 0.5;
-        double py = r * 0.8660254;
-        lock.readLock().lock();
-        try {
-            for (int i = blocks.size() - 1; i >= 0; i--) {
-                Block b = blocks.get(i);
-                String key = TerrainGeometry.hexKey(q, r);
-                if (b.hexSet(mapRadius).contains(key)) return true;
-            }
-            return false;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
     // ── Mutation ───────────────────────────────────────────────
 
     /**
@@ -152,7 +171,13 @@ public class TerrainCanvas {
         return addBlockInternal(terrain, newSet, seedKey);
     }
 
-    /** Add a block from pre-computed hex set (client-side flood fill). */
+    /**
+     * Add a block from pre-computed hex set (client-side flood fill).
+     * @param terrain terrain attribute (e.g. "mountain", "plains")
+     * @param hexSet pre-computed set of hex keys
+     * @param seedKey preferred seed hex (or empty)
+     * @return the new block id, or null if the block was empty after overlap processing
+     */
     public String addBlockFromHexSet(String terrain, Set<String> hexSet, String seedKey) {
         if (terrain == null || hexSet == null || hexSet.isEmpty()) return null;
         return addBlockInternal(terrain, hexSet, seedKey);
@@ -166,7 +191,7 @@ public class TerrainCanvas {
         try {
             // ── Phase A: same-terrain merge ──
             for (Block existing : new ArrayList<>(blocks)) {
-                if (!existing.terrain.equals(terrain)) continue;
+                if (!existing.getTerrain().equals(terrain)) continue;
                 Set<String> es = existing.hexSet(mapRadius);
 
                 if (newSet.containsAll(es)) {
@@ -186,7 +211,7 @@ public class TerrainCanvas {
             List<Block> newFragments = new ArrayList<>();
             Set<String> protectedHexes = new HashSet<>(); // max-retention carve-out
             for (Block existing : new ArrayList<>(blocks)) {
-                if (existing.terrain.equals(terrain)) continue;
+                if (existing.getTerrain().equals(terrain)) continue;
                 Set<String> es = existing.hexSet(mapRadius);
 
                 Set<String> overlap = new HashSet<>(es);
@@ -213,9 +238,9 @@ public class TerrainCanvas {
                     // Split remaining hexes into connected components
                     List<Set<String>> components = splitComponents(es);
                     for (Set<String> comp : components) {
-                        List<MapData.Pt> bnd = comp.size() <= 500
-                            ? TerrainGeometry.hexSetToBoundary(comp) : List.of();
-                        Block frag = new Block(UUID.randomUUID().toString(), existing.terrain, bnd, existing.seedKey);
+                        List<MapData.Pt> bnd = comp.size() <= 500 ? TerrainGeometry.hexSetToBoundary(comp) : List.of();
+                        Block frag = new Block(
+                                UUID.randomUUID().toString(), existing.getTerrain(), bnd, existing.getSeedKey());
                         frag.hexSet = comp;
                         newFragments.add(frag);
                     }
@@ -233,8 +258,7 @@ public class TerrainCanvas {
 
             String id = UUID.randomUUID().toString();
             // Only compute boundary for small sets; large sets skip polygon
-            List<MapData.Pt> newBoundary = newSet.size() <= 500
-                ? TerrainGeometry.hexSetToBoundary(newSet) : List.of();
+            List<MapData.Pt> newBoundary = newSet.size() <= 500 ? TerrainGeometry.hexSetToBoundary(newSet) : List.of();
             if (newSet.size() <= 500 && newBoundary.size() < 3) return null;
 
             Block newBlock = new Block(id, terrain, newBoundary, seedKey);
@@ -246,11 +270,15 @@ public class TerrainCanvas {
         }
     }
 
-    /** Remove a block by id. */
+    /**
+     * Remove a block by id.
+     * @param id the block identifier to remove
+     * @return true if a block was removed
+     */
     public boolean removeBlock(String id) {
         lock.writeLock().lock();
         try {
-            return blocks.removeIf(b -> b.id.equals(id));
+            return blocks.removeIf(b -> b.getId().equals(id));
         } finally {
             lock.writeLock().unlock();
         }
@@ -258,7 +286,10 @@ public class TerrainCanvas {
 
     // ── Serialization bridge ───────────────────────────────────
 
-    /** Export all blocks as gsim-core TerrainBlock records for persistence. */
+    /**
+     * Export all blocks as gsim-core TerrainBlock records for persistence.
+     * @return list of TerrainBlock records
+     */
     public List<MapData.TerrainBlock> getBlocks() {
         lock.readLock().lock();
         try {
@@ -296,7 +327,10 @@ public class TerrainCanvas {
         return result;
     }
 
-    /** Load blocks from gsim-core records (replaces canvas state). */
+    /**
+     * Load blocks from gsim-core records (replaces canvas state).
+     * @param gsimBlocks list of TerrainBlock records to load
+     */
     public void setBlocks(List<MapData.TerrainBlock> gsimBlocks) {
         lock.writeLock().lock();
         try {
@@ -318,17 +352,37 @@ public class TerrainCanvas {
         }
     }
 
+    /**
+     * Returns whether this canvas has no terrain blocks.
+     * @return true if this canvas has no terrain blocks
+     */
     public boolean isEmpty() {
         lock.readLock().lock();
-        try { return blocks.isEmpty(); }
-        finally { lock.readLock().unlock(); }
+        try {
+            return blocks.isEmpty();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
+    /**
+     * Returns the number of terrain blocks in this canvas.
+     * @return the number of terrain blocks in this canvas
+     */
     public int size() {
         lock.readLock().lock();
-        try { return blocks.size(); }
-        finally { lock.readLock().unlock(); }
+        try {
+            return blocks.size();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public int getMapRadius() { return mapRadius; }
+    /**
+     * Returns the map radius used for hex operations.
+     * @return the map radius used for hex operations
+     */
+    public int getMapRadius() {
+        return mapRadius;
+    }
 }

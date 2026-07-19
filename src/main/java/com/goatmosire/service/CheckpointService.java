@@ -4,15 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Read/write GSim node checkpoints (narrative, factions, worldview, characters, map).
@@ -25,6 +30,10 @@ public class CheckpointService {
 
     private final Path worldsDir;
 
+    /**
+     * Constructs a checkpoint service for the given worlds directory.
+     * @param worldsDir the base directory containing world node data
+     */
     public CheckpointService(Path worldsDir) {
         this.worldsDir = worldsDir;
     }
@@ -35,25 +44,40 @@ public class CheckpointService {
     }
 
     /** Read the entire node JSON document. */
-    private ObjectNode readNode(String worldId, String nodeId) throws Exception {
+    private ObjectNode readNode(String worldId, String nodeId) throws IOException {
         Path path = nodePath(worldId, nodeId);
         if (!Files.exists(path)) throw new IllegalArgumentException("Node not found: " + worldId + "/" + nodeId);
-        return (ObjectNode) MAPPER.readTree(path.toFile());
+        JsonNode parsed = MAPPER.readTree(path.toFile());
+        if (parsed == null) throw new IOException("Failed to parse node file (null result): " + path);
+        return (ObjectNode) parsed;
     }
 
     /** Write back the entire node JSON document. */
-    private void writeNode(String worldId, String nodeId, ObjectNode node) throws Exception {
+    private void writeNode(String worldId, String nodeId, ObjectNode node) throws IOException {
         Path path = nodePath(worldId, nodeId);
-        Files.createDirectories(path.getParent());
+        Path parent = path.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
         MAPPER.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), node);
     }
 
-    private String now() { return ZonedDateTime.now(ZoneOffset.UTC).format(ISO); }
+    private String now() {
+        return ZonedDateTime.now(ZoneOffset.UTC).format(ISO);
+    }
 
     // ── Public API ───────────────────────────────────────
 
-    /** List all checkpoint names in a node. */
-    public Map<String, Object> listCheckpoints(String worldId, String nodeId) throws Exception {
+    /**
+     * List all checkpoint names in a node.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @return map with worldId, nodeId, and a list of checkpoints
+     * @throws IOException if the node file cannot be read
+     */
+    public Map<String, Object> listCheckpoints(String worldId, String nodeId) throws IOException {
+        if (worldId == null || nodeId == null)
+            throw new IllegalArgumentException("worldId and nodeId must not be null");
         ObjectNode node = readNode(worldId, nodeId);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("worldId", worldId);
@@ -70,7 +94,9 @@ public class CheckpointService {
                 var cpNode = f.getValue();
                 cp.put("label", cpNode.has("label") ? cpNode.get("label").asText() : "");
                 cp.put("type", cpNode.has("type") ? cpNode.get("type").asText() : "");
-                cp.put("elementCount", cpNode.has("elements") ? cpNode.get("elements").size() : 0);
+                cp.put(
+                        "elementCount",
+                        cpNode.has("elements") ? cpNode.get("elements").size() : 0);
                 checkpoints.add(cp);
             }
         }
@@ -78,9 +104,19 @@ public class CheckpointService {
         return result;
     }
 
-    /** Get elements from a checkpoint, optionally filtered by tags and/or key. */
-    public Map<String, Object> getCheckpoint(String worldId, String nodeId, String checkpointName,
-                                              String filterKey, List<String> filterTags) throws Exception {
+    /**
+     * Get elements from a checkpoint, optionally filtered by tags and/or key.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @param checkpointName the checkpoint name
+     * @param filterKey optional key filter (null to skip)
+     * @param filterTags optional tag filter (null to skip)
+     * @return map with checkpoint elements and metadata
+     * @throws IOException if the node file cannot be read
+     */
+    public Map<String, Object> getCheckpoint(
+            String worldId, String nodeId, String checkpointName, String filterKey, List<String> filterTags)
+            throws IOException {
         ObjectNode node = readNode(worldId, nodeId);
         JsonNode cps = node.get("checkpoints");
         if (cps == null || !cps.has(checkpointName))
@@ -89,8 +125,17 @@ public class CheckpointService {
         JsonNode cp = cps.get(checkpointName);
         JsonNode elements = cp.get("elements");
         if (elements == null || !elements.isArray())
-            return Map.of("worldId", worldId, "nodeId", nodeId,
-                "checkpoint", checkpointName, "elements", List.of(), "count", 0);
+            return Map.of(
+                    "worldId",
+                    worldId,
+                    "nodeId",
+                    nodeId,
+                    "checkpoint",
+                    checkpointName,
+                    "elements",
+                    List.of(),
+                    "count",
+                    0);
 
         List<Object> filtered = new ArrayList<>();
         for (JsonNode el : elements) {
@@ -103,7 +148,9 @@ public class CheckpointService {
             if (filterTags != null && !filterTags.isEmpty()) {
                 Set<String> elTags = new HashSet<>();
                 if (el.has("tags") && el.get("tags").isArray()) {
-                    for (JsonNode t : el.get("tags")) elTags.add(t.asText());
+                    for (JsonNode t : el.get("tags")) {
+                        elTags.add(t.asText());
+                    }
                 }
                 if (!elTags.containsAll(filterTags)) continue;
             }
@@ -120,9 +167,27 @@ public class CheckpointService {
         return result;
     }
 
-    /** Add an element to a checkpoint. Creates the element with the given key/type/value/tags. */
-    public Map<String, Object> addElement(String worldId, String nodeId, String checkpointName,
-                                           String key, String type, String value, List<String> tags) throws Exception {
+    /**
+     * Add an element to a checkpoint. Creates the element with the given key/type/value/tags.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @param checkpointName the checkpoint name
+     * @param key element key
+     * @param type element type
+     * @param value element value
+     * @param tags element tags
+     * @return map with operation result
+     * @throws IOException if the node file cannot be read or written
+     */
+    public Map<String, Object> addElement(
+            String worldId,
+            String nodeId,
+            String checkpointName,
+            String key,
+            String type,
+            String value,
+            List<String> tags)
+            throws IOException {
         ObjectNode node = readNode(worldId, nodeId);
         ObjectNode cps = getOrCreateCheckpoints(node);
         ObjectNode cp = getOrCreateCheckpoint(cps, checkpointName);
@@ -131,7 +196,8 @@ public class CheckpointService {
         // Check for duplicate key
         for (JsonNode el : elements) {
             if (el.has("key") && el.get("key").asText().equals(key)) {
-                throw new IllegalArgumentException("Element with key '" + key + "' already exists in " + checkpointName);
+                throw new IllegalArgumentException(
+                        "Element with key '" + key + "' already exists in " + checkpointName);
             }
         }
 
@@ -140,7 +206,11 @@ public class CheckpointService {
         el.put("type", type != null ? type : "text");
         el.put("value", value != null ? value : "");
         ArrayNode tagArr = MAPPER.createArrayNode();
-        if (tags != null) for (String t : tags) tagArr.add(t);
+        if (tags != null) {
+            for (String t : tags) {
+                tagArr.add(t);
+            }
+        }
         el.set("tags", tagArr);
         el.set("links", MAPPER.createArrayNode());
         String ts = now();
@@ -151,13 +221,42 @@ public class CheckpointService {
         writeNode(worldId, nodeId, node);
         log.info("Added element '{}' to checkpoint '{}' in {}/{}", key, checkpointName, worldId, nodeId);
 
-        return Map.of("ok", true, "worldId", worldId, "nodeId", nodeId,
-            "checkpoint", checkpointName, "key", key, "type", el.get("type").asText());
+        return Map.of(
+                "ok",
+                true,
+                "worldId",
+                worldId,
+                "nodeId",
+                nodeId,
+                "checkpoint",
+                checkpointName,
+                "key",
+                key,
+                "type",
+                el.get("type").asText());
     }
 
-    /** Update an existing element's value, tags, or type. */
-    public Map<String, Object> updateElement(String worldId, String nodeId, String checkpointName,
-                                              String key, String value, String type, List<String> tags) throws Exception {
+    /**
+     * Update an existing element's value, tags, or type.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @param checkpointName the checkpoint name
+     * @param key element key to update
+     * @param value new value (null to keep unchanged)
+     * @param type new type (null to keep unchanged)
+     * @param tags new tags (null to keep unchanged)
+     * @return map with operation result
+     * @throws IOException if the node file cannot be read or written
+     */
+    public Map<String, Object> updateElement(
+            String worldId,
+            String nodeId,
+            String checkpointName,
+            String key,
+            String value,
+            String type,
+            List<String> tags)
+            throws IOException {
         ObjectNode node = readNode(worldId, nodeId);
         ObjectNode cps = (ObjectNode) node.get("checkpoints");
         if (cps == null || !cps.has(checkpointName))
@@ -173,14 +272,15 @@ public class CheckpointService {
                 break;
             }
         }
-        if (target == null)
-            throw new IllegalArgumentException("Element not found: " + key + " in " + checkpointName);
+        if (target == null) throw new IllegalArgumentException("Element not found: " + key + " in " + checkpointName);
 
         if (value != null) target.put("value", value);
         if (type != null) target.put("type", type);
         if (tags != null) {
             ArrayNode tagArr = MAPPER.createArrayNode();
-            for (String t : tags) tagArr.add(t);
+            for (String t : tags) {
+                tagArr.add(t);
+            }
             target.set("tags", tagArr);
         }
         target.put("updatedAt", now());
@@ -188,13 +288,20 @@ public class CheckpointService {
         writeNode(worldId, nodeId, node);
         log.info("Updated element '{}' in checkpoint '{}' in {}/{}", key, checkpointName, worldId, nodeId);
 
-        return Map.of("ok", true, "worldId", worldId, "nodeId", nodeId,
-            "checkpoint", checkpointName, "key", key);
+        return Map.of("ok", true, "worldId", worldId, "nodeId", nodeId, "checkpoint", checkpointName, "key", key);
     }
 
-    /** Delete an element from a checkpoint by key. */
-    public Map<String, Object> deleteElement(String worldId, String nodeId, String checkpointName,
-                                              String key) throws Exception {
+    /**
+     * Delete an element from a checkpoint by key.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @param checkpointName the checkpoint name
+     * @param key element key to delete
+     * @return map with operation result
+     * @throws IOException if the node file cannot be read or written
+     */
+    public Map<String, Object> deleteElement(String worldId, String nodeId, String checkpointName, String key)
+            throws IOException {
         ObjectNode node = readNode(worldId, nodeId);
         ObjectNode cps = (ObjectNode) node.get("checkpoints");
         if (cps == null || !cps.has(checkpointName))
@@ -205,24 +312,31 @@ public class CheckpointService {
 
         int idx = -1;
         for (int i = 0; i < elements.size(); i++) {
-            if (elements.get(i).has("key") && elements.get(i).get("key").asText().equals(key)) {
+            if (elements.get(i).has("key")
+                    && elements.get(i).get("key").asText().equals(key)) {
                 idx = i;
                 break;
             }
         }
-        if (idx < 0)
-            throw new IllegalArgumentException("Element not found: " + key + " in " + checkpointName);
+        if (idx < 0) throw new IllegalArgumentException("Element not found: " + key + " in " + checkpointName);
 
         elements.remove(idx);
         writeNode(worldId, nodeId, node);
         log.info("Deleted element '{}' from checkpoint '{}' in {}/{}", key, checkpointName, worldId, nodeId);
 
-        return Map.of("ok", true, "worldId", worldId, "nodeId", nodeId,
-            "checkpoint", checkpointName, "key", key);
+        return Map.of("ok", true, "worldId", worldId, "nodeId", nodeId, "checkpoint", checkpointName, "key", key);
     }
 
-    /** Find all checkpoint elements referencing oldName and update to newName. */
-    public int renameReferences(String worldId, String nodeId, String oldName, String newName) throws Exception {
+    /**
+     * Find all checkpoint elements referencing oldName and update to newName.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @param oldName the name to replace
+     * @param newName the replacement name
+     * @return the number of updated elements
+     * @throws IOException if the node file cannot be read or written
+     */
+    public int renameReferences(String worldId, String nodeId, String oldName, String newName) throws IOException {
         ObjectNode node = readNode(worldId, nodeId);
         ObjectNode cps = (ObjectNode) node.get("checkpoints");
         if (cps == null) return 0;
@@ -281,8 +395,13 @@ public class CheckpointService {
 
         if (updated > 0) {
             writeNode(worldId, nodeId, node);
-            log.info("Renamed '{}' -> '{}' in {} checkpoint elements across {}/{}",
-                oldName, newName, updated, worldId, nodeId);
+            log.info(
+                    "Renamed '{}' -> '{}' in {} checkpoint elements across {}/{}",
+                    oldName,
+                    newName,
+                    updated,
+                    worldId,
+                    nodeId);
         }
         return updated;
     }

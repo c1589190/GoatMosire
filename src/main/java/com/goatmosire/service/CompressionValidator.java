@@ -2,10 +2,14 @@ package com.goatmosire.service;
 
 import com.goatmosire.map.MapData;
 import com.goatmosire.map.MapData.CompressedRegion;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.*;
 
 /**
  * Validates and repairs {@link CompressedRegion} boundaries on map load.
@@ -24,20 +28,75 @@ import java.util.*;
  * {@link TerrainGeometry#hexSetToBoundaryWithHoles}, which includes hole rings
  * for any regions of other terrain enclosed by this CR.
  */
-public class CompressionValidator {
+public final class CompressionValidator {
+
+    private CompressionValidator() {
+        // utility class
+    }
 
     private static final Logger log = LoggerFactory.getLogger(CompressionValidator.class);
     private static final int MIN_SAMPLE = 5;
     private static final double SAMPLE_RATIO = 0.10;
 
     /** Result of a validation pass. */
-    public record Result(boolean valid, int inspected, int badCount, Set<String> badIds) {
-        public boolean valid() { return valid; }
-        public int invalidCount() { return badCount; }
+    public static final class Result {
+        private final boolean valid;
+        private final int inspected;
+        private final int badCount;
+        private final Set<String> badIds;
+
+        /**
+         * Constructs a validation result.
+         * @param valid whether all CRs are valid
+         * @param inspected number of CRs inspected
+         * @param badCount number of invalid CRs found
+         * @param badIds set of invalid CR identifiers
+         */
+        public Result(boolean valid, int inspected, int badCount, Set<String> badIds) {
+            this.valid = valid;
+            this.inspected = inspected;
+            this.badCount = badCount;
+            this.badIds = badIds == null ? Set.of() : Set.copyOf(badIds);
+        }
+
+        /**
+         * Returns whether all compressed regions passed validation.
+         * @return true if all CRs are valid
+         */
+        public boolean valid() {
+            return valid;
+        }
+
+        /**
+         * Returns the number of compressed regions inspected.
+         * @return the number of CRs inspected
+         */
+        public int inspected() {
+            return inspected;
+        }
+
+        /**
+         * Returns the number of invalid compressed regions found.
+         * @return the number of invalid CRs found
+         */
+        public int invalidCount() {
+            return badCount;
+        }
+
+        /**
+         * Returns the set of invalid compressed region identifiers.
+         * @return the set of invalid CR identifiers
+         */
+        public Set<String> badIds() {
+            return Collections.unmodifiableSet(badIds);
+        }
     }
 
     /**
-     * Validate all CRs in a MapData.  Returns a Result with badIds populated.
+     * Validate all compressed regions in a MapData.
+     * Checks self-cover, no intrusion, and no double-cover constraints.
+     * @param map the map data to validate
+     * @return a Result with badIds populated for invalid CRs
      */
     public static Result validate(MapData map) {
         List<CompressedRegion> crs = map.compressedRegions();
@@ -72,8 +131,7 @@ public class CompressionValidator {
                 }
             }
             if (selfMiss > 0) {
-                log.debug("CR {} self-cover fail: {}/{} samples outside boundary",
-                    cr.id(), selfMiss, sample.size());
+                log.debug("CR {} self-cover fail: {}/{} samples outside boundary", cr.id(), selfMiss, sample.size());
                 badIds.add(cr.id());
                 inspected++;
                 continue;
@@ -98,8 +156,7 @@ public class CompressionValidator {
                 }
             }
             if (intrusionCount >= 3) {
-                log.debug("CR {} intrusion: {} adjacent hexes inside boundary",
-                    cr.id(), intrusionCount);
+                log.debug("CR {} intrusion: {} adjacent hexes inside boundary", cr.id(), intrusionCount);
                 badIds.add(cr.id());
             }
 
@@ -114,9 +171,10 @@ public class CompressionValidator {
     }
 
     /**
-     * Repair invalid CRs by regenerating their boundaries (with holes).
+     * Repair invalid compressed regions by regenerating their boundaries (with holes).
      * HexKeys are the truth — boundaries are derived from them.
-     *
+     * @param crs the current list of compressed regions
+     * @param badIds set of region IDs to repair
      * @return a new CompressedRegion list with repaired boundaries
      */
     public static List<CompressedRegion> repair(List<CompressedRegion> crs, Set<String> badIds) {
@@ -139,30 +197,41 @@ public class CompressionValidator {
                 continue;
             }
             List<MapData.Pt> outer = boundaries.get(0);
-            CompressedRegion fixed = new CompressedRegion(
-                cr.id(), cr.terrain(), cr.color(),
-                outer, boundaries,
-                cr.isWater(), hexKeys
-            );
+            CompressedRegion fixed =
+                    new CompressedRegion(cr.id(), cr.terrain(), cr.color(), outer, boundaries, cr.isWater(), hexKeys);
             repaired.add(fixed);
-            log.info("Repaired CR {} ({}): {} rings (outer + {} holes)",
-                cr.id(), cr.terrain(), boundaries.size(), boundaries.size() - 1);
+            log.info(
+                    "Repaired CR {} ({}): {} rings (outer + {} holes)",
+                    cr.id(),
+                    cr.terrain(),
+                    boundaries.size(),
+                    boundaries.size() - 1);
         }
         return repaired;
     }
 
-    /** Validate and optionally repair a full MapData. */
+    /**
+     * Validate and optionally repair a full MapData.
+     * @param map the map data to validate and repair
+     * @return the (possibly repaired) map data
+     */
     public static MapData validateAndRepair(MapData map) {
         Result result = validate(map);
         if (result.valid()) return map;
 
         List<CompressedRegion> fixed = repair(map.compressedRegions(), result.badIds());
         return new MapData(
-            map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(),
-            fixed, map.pathwayGroups()
-        );
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                map.provinces(),
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                fixed,
+                map.pathwayGroups());
     }
 
     // ── helpers ────────────────────────────────────────────────

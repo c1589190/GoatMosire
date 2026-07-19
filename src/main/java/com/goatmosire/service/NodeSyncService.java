@@ -4,15 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.gsim.map.MapData;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.goatmosire.map.MapData;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Syncs GoatMosire map data into GSim node files as Elements in the "map" checkpoint.
@@ -33,15 +32,26 @@ public class NodeSyncService {
 
     private final Path worldsDir;
 
+    /**
+     * Constructs a sync service for the given worlds directory.
+     * @param worldsDir the base directory containing world data
+     */
     public NodeSyncService(Path worldsDir) {
         this.worldsDir = worldsDir;
     }
 
     /**
      * Full rebuild: clear the "map" checkpoint, then populate with current MapData.
+     * @param worldId the world identifier
+     * @param nodeId the node identifier
+     * @param mapData the map data to sync
      */
     public void sync(String worldId, String nodeId, MapData mapData) {
         if (mapData == null) return;
+        if (worldId == null || nodeId == null) {
+            log.warn("sync called with null worldId or nodeId");
+            return;
+        }
 
         Path nodeFile = worldsDir.resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
         ObjectNode root;
@@ -49,14 +59,15 @@ public class NodeSyncService {
         try {
             if (Files.exists(nodeFile)) {
                 JsonNode existing = MAPPER.readTree(nodeFile.toFile());
-                if (existing.isObject()) {
+                if (existing != null && existing.isObject()) {
                     root = (ObjectNode) existing;
                 } else {
                     root = createMinimalNode(nodeId);
                 }
             } else {
                 root = createMinimalNode(nodeId);
-                Files.createDirectories(nodeFile.getParent());
+                Path parent = nodeFile.getParent();
+                if (parent != null) Files.createDirectories(parent);
             }
         } catch (IOException e) {
             log.error("Failed to read node file: {}", nodeFile, e);
@@ -83,8 +94,8 @@ public class NodeSyncService {
                 String key = tag.isEmpty() ? "_untagged:" + name : tag + ":" + name;
 
                 String value = buildRegionValue(name, prov, mapData);
-                elements.add(createElement(key, "map-region", value,
-                    tag.isEmpty() ? new String[]{name} : new String[]{tag, name}));
+                elements.add(createElement(
+                        key, "map-region", value, tag.isEmpty() ? new String[] {name} : new String[] {tag, name}));
             }
         }
 
@@ -100,8 +111,8 @@ public class NodeSyncService {
                 String key = terrain + ":" + qr[0] + "_" + qr[1];
 
                 String value = buildHexValue(qr[0], qr[1], cell, mapData);
-                elements.add(createElement(key, "hex-terrain", value,
-                    new String[]{terrain, "q" + qr[0] + "r" + qr[1]}));
+                elements.add(
+                        createElement(key, "hex-terrain", value, new String[] {terrain, "q" + qr[0] + "r" + qr[1]}));
             }
         }
 
@@ -113,7 +124,7 @@ public class NodeSyncService {
                 String key = "city:" + name;
 
                 String value = buildCityValue(name, city);
-                elements.add(createElement(key, "city", value, new String[]{"city", name}));
+                elements.add(createElement(key, "city", value, new String[] {"city", name}));
             }
         }
 
@@ -122,8 +133,7 @@ public class NodeSyncService {
         // Write back
         try {
             MAPPER.writerWithDefaultPrettyPrinter().writeValue(nodeFile.toFile(), root);
-            log.info("Synced {} elements to {} map checkpoint (node={})",
-                elements.size(), worldId, nodeId);
+            log.info("Synced {} elements to {} map checkpoint (node={})", elements.size(), worldId, nodeId);
         } catch (IOException e) {
             log.error("Failed to write node file: {}", nodeFile, e);
         }
@@ -151,7 +161,8 @@ public class NodeSyncService {
             }
             if (!terrainCounts.isEmpty()) {
                 sb.append("地形构成: ");
-                terrainCounts.forEach((t, c) -> sb.append(t).append("×").append(c).append(" "));
+                terrainCounts.forEach(
+                        (t, c) -> sb.append(t).append("×").append(c).append(" "));
                 sb.append("\n");
             }
         }
@@ -167,13 +178,18 @@ public class NodeSyncService {
         sb.append("坐标: (").append(q).append(", ").append(r).append(")\n");
         sb.append("地形: ").append(cell.terrain()).append("\n");
 
-        MapData.TerrainType tt = mapData.terrainTypes() != null
-            ? mapData.terrainTypes().get(cell.terrain()) : null;
+        MapData.TerrainType tt =
+                mapData.terrainTypes() != null ? mapData.terrainTypes().get(cell.terrain()) : null;
         if (tt != null) {
-            sb.append("产出: 🍖").append(tt.food())
-              .append(" 💰").append(tt.gold())
-              .append(" 🪨").append(tt.stone())
-              .append(" 👣").append(tt.moveCost()).append("\n");
+            sb.append("产出: 🍖")
+                    .append(tt.food())
+                    .append(" 💰")
+                    .append(tt.gold())
+                    .append(" 🪨")
+                    .append(tt.stone())
+                    .append(" 👣")
+                    .append(tt.moveCost())
+                    .append("\n");
         }
         sb.append("描述: ").append(cell.description());
         return sb.toString();
@@ -208,7 +224,9 @@ public class NodeSyncService {
         el.put("value", value);
 
         ArrayNode tagArr = MAPPER.createArrayNode();
-        for (String t : tags) tagArr.add(t);
+        for (String t : tags) {
+            tagArr.add(t);
+        }
         el.set("tags", tagArr);
 
         el.set("links", MAPPER.createArrayNode());

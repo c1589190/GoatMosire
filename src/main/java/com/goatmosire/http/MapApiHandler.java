@@ -1,24 +1,32 @@
 package com.goatmosire.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.goatmosire.map.*;
-import com.goatmosire.service.MapService;
-import com.goatmosire.service.MapGenerator;
+import com.goatmosire.map.MapData;
+import com.goatmosire.map.MapDiff;
+import com.goatmosire.map.MapResolver;
 import com.goatmosire.service.ContinentContour;
 import com.goatmosire.service.ContourLayer;
-import com.goatmosire.service.LassoProcessor;
 import com.goatmosire.service.ContourQueryEngine;
+import com.goatmosire.service.LassoProcessor;
+import com.goatmosire.service.MapGenerator;
+import com.goatmosire.service.MapService;
 import com.goatmosire.service.TerrainCanvas;
 import com.goatmosire.service.TerrainGeometry;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * REST API handler for /api/map/* endpoints.
@@ -38,10 +46,23 @@ public class MapApiHandler implements HttpHandler {
 
     private final MapService mapService;
 
+    /**
+     * Creates a new handler backed by the given map service instance.
+     *
+     * @param mapService the shared map service
+     */
+    @SuppressFBWarnings("EI_EXPOSE_REP2")
     public MapApiHandler(MapService mapService) {
         this.mapService = mapService;
     }
 
+    /**
+     * Dispatches REST API requests to the appropriate handler method based on
+     * the HTTP method and request path.
+     *
+     * @param exchange the HTTP exchange
+     * @throws IOException if an I/O error occurs during response processing
+     */
     @Override
     public void handle(HttpExchange exchange) throws IOException {
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
@@ -109,7 +130,7 @@ public class MapApiHandler implements HttpHandler {
                     default -> sendError(exchange, 405, "Method not allowed: " + method);
                 }
             }
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             log.error("API error", e);
             sendError(exchange, 500, e.getMessage());
         }
@@ -132,7 +153,8 @@ public class MapApiHandler implements HttpHandler {
                 return;
             }
             ContourQueryEngine engine = new ContourQueryEngine(contour);
-            MapData map = engine.materialize(-contour.radius, contour.radius, -contour.radius, contour.radius);
+            MapData map = engine.materialize(
+                    -contour.getRadius(), contour.getRadius(), -contour.getRadius(), contour.getRadius());
             mapService.saveFull(worldId, "n0000", map);
             sendJson(exchange, 200, Map.of("ok", true, "hexCount", map.hexes().size()));
             return;
@@ -182,7 +204,8 @@ public class MapApiHandler implements HttpHandler {
             return;
         }
         try {
-            var file = mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
+            var file =
+                    mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
             if (!java.nio.file.Files.exists(file)) {
                 sendError(exchange, 404, "Node not found: " + nodeId);
                 return;
@@ -192,7 +215,7 @@ public class MapApiHandler implements HttpHandler {
             List<Map<String, Object>> texts = new ArrayList<>();
 
             // Collect last 3 from narrative and factions, sorted by updatedAt
-            for (String cpName : new String[]{"narrative", "factions"}) {
+            for (String cpName : new String[] {"narrative", "factions"}) {
                 if (cps != null && cps.has(cpName)) {
                     var elements = cps.get(cpName).get("elements");
                     if (elements != null && elements.isArray()) {
@@ -203,10 +226,14 @@ public class MapApiHandler implements HttpHandler {
                             item.put("value", el.get("value").asText());
                             if (el.has("tags") && el.get("tags").isArray()) {
                                 List<String> tags = new ArrayList<>();
-                                for (var t : el.get("tags")) tags.add(t.asText());
+                                for (var t : el.get("tags")) {
+                                    tags.add(t.asText());
+                                }
                                 item.put("tags", tags);
                             }
-                            item.put("updatedAt", el.has("updatedAt") ? el.get("updatedAt").asText() : "");
+                            item.put(
+                                    "updatedAt",
+                                    el.has("updatedAt") ? el.get("updatedAt").asText() : "");
                             texts.add(item);
                         }
                     }
@@ -215,11 +242,11 @@ public class MapApiHandler implements HttpHandler {
 
             // Sort by updatedAt descending, take last 8
             texts.sort((a, b) -> String.valueOf(b.getOrDefault("updatedAt", ""))
-                .compareTo(String.valueOf(a.getOrDefault("updatedAt", ""))));
+                    .compareTo(String.valueOf(a.getOrDefault("updatedAt", ""))));
             if (texts.size() > 8) texts = texts.subList(0, 8);
 
             sendJson(exchange, 200, Map.of("worldId", worldId, "nodeId", nodeId, "texts", texts));
-        } catch (Exception e) {
+        } catch (IOException e) {
             log.error("Failed to read latest texts", e);
             sendError(exchange, 500, "Failed: " + e.getMessage());
         }
@@ -235,9 +262,11 @@ public class MapApiHandler implements HttpHandler {
             return;
         }
         try {
-            var mapFile = mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
+            var mapFile =
+                    mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + "_map.json");
             long lastMod = java.nio.file.Files.exists(mapFile)
-                ? java.nio.file.Files.getLastModifiedTime(mapFile).toMillis() : 0;
+                    ? java.nio.file.Files.getLastModifiedTime(mapFile).toMillis()
+                    : 0;
             sendJson(exchange, 200, Map.of("worldId", worldId, "nodeId", nodeId, "version", lastMod));
         } catch (Exception e) {
             sendError(exchange, 500, e.getMessage());
@@ -252,7 +281,7 @@ public class MapApiHandler implements HttpHandler {
             return;
         }
         String worldId = sub.substring(1, sub.indexOf("/expand"));
-        String direction = params.getOrDefault("direction", "E").toUpperCase();
+        String direction = params.getOrDefault("direction", "E").toUpperCase(Locale.ROOT);
         int radius = Integer.parseInt(params.getOrDefault("radius", "0"));
         String nodeId = params.getOrDefault("node", readActiveNodeId(worldId));
         if (nodeId == null) {
@@ -382,12 +411,29 @@ public class MapApiHandler implements HttpHandler {
         populateTerrainBlocks(worldId, contour, radius);
         mapService.evictCanvas(worldId);
 
-        try { mapService.syncToGSimNode(worldId, "n0000"); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
-        sendJson(exchange, 200, Map.of(
-            "ok", true, "worldId", worldId, "nodeId", "n0000",
-            "seed", seed, "hexCount", map.hexes().size(),
-            "landHexes", map.hexes().values().stream().filter(c -> !"water".equals(c.terrain())).count()
-        ));
+        try {
+            mapService.syncToGSimNode(worldId, "n0000");
+        } catch (RuntimeException ex) {
+            log.warn("GSim node sync failed", ex);
+        }
+        sendJson(
+                exchange,
+                200,
+                Map.of(
+                        "ok",
+                        true,
+                        "worldId",
+                        worldId,
+                        "nodeId",
+                        "n0000",
+                        "seed",
+                        seed,
+                        "hexCount",
+                        map.hexes().size(),
+                        "landHexes",
+                        map.hexes().values().stream()
+                                .filter(c -> !"water".equals(c.terrain()))
+                                .count()));
     }
 
     // ── GET/PUT /api/map/{worldId}/contour[/editor-layers] ─
@@ -408,12 +454,13 @@ public class MapApiHandler implements HttpHandler {
                 String terrain = node.get("terrain").asText();
                 List<ContinentContour.Pt> pts = new ArrayList<>();
                 for (var pt : node.get("boundary")) {
-                    pts.add(new ContinentContour.Pt(pt.get("x").asDouble(), pt.get("y").asDouble()));
+                    pts.add(new ContinentContour.Pt(
+                            pt.get("x").asDouble(), pt.get("y").asDouble()));
                 }
                 String seed = node.has("seedKey") ? node.get("seedKey").asText() : "";
                 layers.add(new ContourLayer(terrain, pts, seed));
             }
-            contour.editorLayers = layers;
+            contour.setEditorLayers(layers);
             mapService.saveContour(worldId, contour);
             sendJson(exchange, 200, Map.of("ok", true, "layers", layers.size()));
         } else {
@@ -448,27 +495,61 @@ public class MapApiHandler implements HttpHandler {
                 // Accept lassoKeys (raw lasso hex keys) → backend fills
                 if (body.has("lassoKeys")) {
                     List<String> rawKeys = new ArrayList<>();
-                    for (var node : body.get("lassoKeys")) rawKeys.add(node.asText());
+                    for (var node : body.get("lassoKeys")) {
+                        rawKeys.add(node.asText());
+                    }
                     Set<String> hexSet = LassoProcessor.fill(rawKeys);
                     if (hexSet.isEmpty()) {
                         sendJson(exchange, 200, Map.of("ok", false, "reason", "lasso fill returned empty"));
                     } else {
                         String blockId = mapService.addBlockFromHexSet(worldId, terrain, hexSet, seed);
-                        sendJson(exchange, 200, Map.of("ok", blockId != null, "blockId", blockId != null ? blockId : "", "terrain", terrain));
+                        sendJson(
+                                exchange,
+                                200,
+                                Map.of(
+                                        "ok",
+                                        blockId != null,
+                                        "blockId",
+                                        blockId != null ? blockId : "",
+                                        "terrain",
+                                        terrain));
                     }
                 } else if (body.has("hexKeys")) {
                     Set<String> hexSet = new HashSet<>();
-                    for (var node : body.get("hexKeys")) hexSet.add(node.asText());
+                    for (var node : body.get("hexKeys")) {
+                        hexSet.add(node.asText());
+                    }
                     String blockId = mapService.addBlockFromHexSet(worldId, terrain, hexSet, seed);
-                    sendJson(exchange, 200, Map.of("ok", blockId != null, "blockId", blockId != null ? blockId : "", "terrain", terrain));
+                    sendJson(
+                            exchange,
+                            200,
+                            Map.of(
+                                    "ok",
+                                    blockId != null,
+                                    "blockId",
+                                    blockId != null ? blockId : "",
+                                    "terrain",
+                                    terrain));
                 } else {
                     // Legacy: accept polygon boundary
                     List<MapData.Pt> bnd = new ArrayList<>();
-                    for (var pt : body.get("boundary"))
-                        bnd.add(new MapData.Pt(pt.get("x").asDouble(), pt.get("y").asDouble()));
+                    for (var pt : body.get("boundary")) {
+                        bnd.add(new MapData.Pt(
+                                pt.get("x").asDouble(), pt.get("y").asDouble()));
+                    }
                     String blockId = mapService.addBlock(worldId, terrain, bnd, seed);
-                    sendJson(exchange, 200, Map.of("ok", blockId != null, "blockId", blockId != null ? blockId : "", "terrain", terrain,
-                        "reason", blockId == null ? "empty after overlap processing" : ""));
+                    sendJson(
+                            exchange,
+                            200,
+                            Map.of(
+                                    "ok",
+                                    blockId != null,
+                                    "blockId",
+                                    blockId != null ? blockId : "",
+                                    "terrain",
+                                    terrain,
+                                    "reason",
+                                    blockId == null ? "empty after overlap processing" : ""));
                 }
             }
             case "DELETE" -> {
@@ -536,9 +617,13 @@ public class MapApiHandler implements HttpHandler {
             MapData data = MAPPER.readValue(raw, MapData.class);
             mapService.saveFull(worldId, nodeId, data);
             log.info("Created map for world={} node={}", worldId, nodeId);
-            try { mapService.syncToGSimNode(worldId, nodeId); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
+            try {
+                mapService.syncToGSimNode(worldId, nodeId);
+            } catch (RuntimeException ex) {
+                log.warn("GSim node sync failed", ex);
+            }
             sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
-        } catch (Exception e) {
+        } catch (IOException e) {
             sendError(exchange, 400, "Invalid map data: " + e.getMessage());
         }
     }
@@ -559,26 +644,41 @@ public class MapApiHandler implements HttpHandler {
                 // Explicit diff from client
                 MapDiff diff = MAPPER.readValue(body, MapDiff.class);
                 mapService.saveDiff(worldId, nodeId, diff);
-                log.info("Saved diff for world={} node={} ({} hex changes)", worldId, nodeId, diff.changed().size());
+                log.info(
+                        "Saved diff for world={} node={} ({} hex changes)",
+                        worldId,
+                        nodeId,
+                        diff.changed().size());
             } else {
                 MapData data = MAPPER.readValue(body, MapData.class);
                 if (isRootNode(worldId, nodeId)) {
                     mapService.saveFull(worldId, nodeId, data);
-                    log.info("Saved full map for root node world={} node={} ({} CRs)", worldId, nodeId,
-                        data.compressedRegions().size());
+                    log.info(
+                            "Saved full map for root node world={} node={} ({} CRs)",
+                            worldId,
+                            nodeId,
+                            data.compressedRegions().size());
                 } else {
                     // Child node: auto-compute diff vs parent's resolved map
                     String parentId = readParentNodeId(worldId, nodeId);
                     MapData parentMap = parentId != null ? mapService.resolve(worldId, parentId) : MapData.empty();
                     MapDiff diff = MapDiff.compute(parentId, parentMap, data);
                     mapService.saveDiff(worldId, nodeId, diff);
-                    log.info("Auto-computed diff for world={} node={} ({} changed, {} removed)",
-                        worldId, nodeId, diff.changed().size(), diff.removed().size());
+                    log.info(
+                            "Auto-computed diff for world={} node={} ({} changed, {} removed)",
+                            worldId,
+                            nodeId,
+                            diff.changed().size(),
+                            diff.removed().size());
                 }
             }
-            try { mapService.syncToGSimNode(worldId, nodeId); } catch (Exception ex) { log.warn("GSim node sync failed", ex); }
+            try {
+                mapService.syncToGSimNode(worldId, nodeId);
+            } catch (RuntimeException ex) {
+                log.warn("GSim node sync failed", ex);
+            }
             sendJson(exchange, 200, Map.of("ok", true, "worldId", worldId, "nodeId", nodeId));
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             sendError(exchange, 400, "Invalid map data: " + e.getMessage());
         }
     }
@@ -587,45 +687,62 @@ public class MapApiHandler implements HttpHandler {
     private void populateTerrainBlocks(String worldId, ContinentContour contour, int radius) {
         TerrainCanvas canvas = mapService.getCanvas(worldId);
 
-        for (ContinentContour.Ridge ridge : contour.ridges) {
-            if (ridge.points.size() < 2) continue;
+        for (ContinentContour.Ridge ridge : contour.getRidges()) {
+            if (ridge.getPoints().size() < 2) continue;
 
             // Build a thick polygon around the ridge line
             List<MapData.Pt> pts = new ArrayList<>();
-            double width = radius * (ridge.weight > 0.8 ? 0.12 : 0.06);
-            final double GRID = 30.0;
+            double width = radius * (ridge.getWeight() > 0.8 ? 0.12 : 0.06);
+            final double grid = 30.0;
 
-            for (int i = 0; i < ridge.points.size(); i++) {
-                ContinentContour.Pt p = ridge.points.get(i);
+            for (int i = 0; i < ridge.getPoints().size(); i++) {
+                ContinentContour.Pt p = ridge.getPoints().get(i);
                 double angle = Math.atan2(
-                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).y : p.y + 1) - (i > 0 ? ridge.points.get(i-1).y : p.y - 1),
-                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).x : p.x + 1) - (i > 0 ? ridge.points.get(i-1).x : p.x - 1));
-                double nx = Math.cos(angle + Math.PI/2) * width;
-                double ny = Math.sin(angle + Math.PI/2) * width;
+                        (i + 1 < ridge.getPoints().size()
+                                        ? ridge.getPoints().get(i + 1).getY()
+                                        : p.getY() + 1)
+                                - (i > 0 ? ridge.getPoints().get(i - 1).getY() : p.getY() - 1),
+                        (i + 1 < ridge.getPoints().size()
+                                        ? ridge.getPoints().get(i + 1).getX()
+                                        : p.getX() + 1)
+                                - (i > 0 ? ridge.getPoints().get(i - 1).getX() : p.getX() - 1));
+                double nx = Math.cos(angle + Math.PI / 2) * width;
+                double ny = Math.sin(angle + Math.PI / 2) * width;
                 // Convert axial → pixel (with GRID scaling for TerrainGeometry)
-                double px = (p.x + p.y * 0.5) * GRID;
-                double py = p.y * 0.8660254 * GRID;
+                double px = (p.getX() + p.getY() * 0.5) * grid;
+                double py = p.getY() * 0.8660254 * grid;
                 pts.add(new MapData.Pt(px + nx, py + ny));
             }
-            for (int i = ridge.points.size() - 1; i >= 0; i--) {
-                ContinentContour.Pt p = ridge.points.get(i);
+            for (int i = ridge.getPoints().size() - 1; i >= 0; i--) {
+                ContinentContour.Pt p = ridge.getPoints().get(i);
                 double angle = Math.atan2(
-                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).y : p.y + 1) - (i > 0 ? ridge.points.get(i-1).y : p.y - 1),
-                    (i+1 < ridge.points.size() ? ridge.points.get(i+1).x : p.x + 1) - (i > 0 ? ridge.points.get(i-1).x : p.x - 1));
-                double nx = Math.cos(angle - Math.PI/2) * width;
-                double ny = Math.sin(angle - Math.PI/2) * width;
+                        (i + 1 < ridge.getPoints().size()
+                                        ? ridge.getPoints().get(i + 1).getY()
+                                        : p.getY() + 1)
+                                - (i > 0 ? ridge.getPoints().get(i - 1).getY() : p.getY() - 1),
+                        (i + 1 < ridge.getPoints().size()
+                                        ? ridge.getPoints().get(i + 1).getX()
+                                        : p.getX() + 1)
+                                - (i > 0 ? ridge.getPoints().get(i - 1).getX() : p.getX() - 1));
+                double nx = Math.cos(angle - Math.PI / 2) * width;
+                double ny = Math.sin(angle - Math.PI / 2) * width;
                 // Convert axial → pixel (with GRID scaling)
-                double px2 = (p.x + p.y * 0.5) * GRID;
-                double py2 = p.y * 0.8660254 * GRID;
+                double px2 = (p.getX() + p.getY() * 0.5) * grid;
+                double py2 = p.getY() * 0.8660254 * grid;
                 pts.add(new MapData.Pt(px2 + nx, py2 + ny));
             }
             // Close
-            if (!pts.isEmpty()) pts.add(new MapData.Pt(pts.get(0).x(), pts.get(0).y()));
+            if (!pts.isEmpty())
+                pts.add(new MapData.Pt(pts.get(0).x(), pts.get(0).y()));
 
-            String terrain = ridge.weight > 0.8 ? "hills" : "plains";
+            String terrain = ridge.getWeight() > 0.8 ? "hills" : "plains";
             String seedKey = TerrainGeometry.hexKey(
-                TerrainGeometry.pixelToHex(ridge.points.get(0).x, ridge.points.get(0).y)[0],
-                TerrainGeometry.pixelToHex(ridge.points.get(0).x, ridge.points.get(0).y)[1]);
+                    TerrainGeometry.pixelToHex(
+                            ridge.getPoints().get(0).getX(),
+                            ridge.getPoints().get(0).getY())[0],
+                    TerrainGeometry.pixelToHex(
+                            ridge.getPoints().get(0).getX(),
+                            ridge.getPoints().get(0).getY())[1]);
             canvas.addBlock(terrain, pts, seedKey);
         }
     }
@@ -637,12 +754,13 @@ public class MapApiHandler implements HttpHandler {
 
         if ("GET".equals(method)) {
             MapData map = mapService.resolveActive(worldId);
-            Map<String, MapData.PathwayGroup> groups = map != null && map.pathwayGroups() != null
-                ? map.pathwayGroups() : MapData.defaultPathwayGroups();
+            Map<String, MapData.PathwayGroup> groups =
+                    map != null && map.pathwayGroups() != null ? map.pathwayGroups() : MapData.defaultPathwayGroups();
             sendJson(exchange, 200, groups);
         } else if ("PUT".equals(method)) {
-            Map<String, MapData.PathwayGroup> body = MAPPER.readValue(exchange.getRequestBody(),
-                MAPPER.getTypeFactory().constructMapType(Map.class, String.class, MapData.PathwayGroup.class));
+            Map<String, MapData.PathwayGroup> body = MAPPER.readValue(
+                    exchange.getRequestBody(),
+                    MAPPER.getTypeFactory().constructMapType(Map.class, String.class, MapData.PathwayGroup.class));
             mapService.updatePathwayGroups(worldId, body);
             sendJson(exchange, 200, Map.of("ok", true));
         } else {
@@ -681,7 +799,7 @@ public class MapApiHandler implements HttpHandler {
             if (!java.nio.file.Files.exists(file)) return null;
             var node = MAPPER.readTree(file.toFile());
             return node.has("nodeId") ? node.get("nodeId").asText() : null;
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             return null;
         }
     }
@@ -692,7 +810,8 @@ public class MapApiHandler implements HttpHandler {
 
     private String readParentNodeId(String worldId, String nodeId) {
         try {
-            var file = mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
+            var file =
+                    mapService.getWorldsDir().resolve(worldId).resolve("nodes").resolve(nodeId + ".json");
             if (!java.nio.file.Files.exists(file)) return null;
             var node = MAPPER.readTree(file.toFile());
             if (node.has("parentId") && !node.get("parentId").isNull()) {
@@ -700,7 +819,7 @@ public class MapApiHandler implements HttpHandler {
                 return pid.isBlank() ? null : pid;
             }
             return null;
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             return null;
         }
     }

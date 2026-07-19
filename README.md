@@ -1,6 +1,6 @@
 # GoatMosire
 
-> Hex map editor and MCP bridge for GSimulator — a turn-based grand strategy engine.  
+> Hex map editor and MCP bridge for GSimulator — a turn-based grand strategy engine.
 > Built for both human GMs and AI agents (Claude Code, Codex, Cline, etc.).
 
 [![Java](https://img.shields.io/badge/Java-21-blue)](https://openjdk.org/projects/jdk/21/)
@@ -239,7 +239,7 @@ Default terrain types (customizable via `update_terrain_type`):
 
 ## Coordinate System
 
-**Axial coordinates** (q, r) with pointy-top hexagons.  
+**Axial coordinates** (q, r) with pointy-top hexagons.
 Hex distance: `(|q1-q2| + |r1-r2| + |(-q1-r1) - (-q2-r2)|) / 2`
 
 ```

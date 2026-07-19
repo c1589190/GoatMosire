@@ -4,14 +4,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.gsim.mcp.GsimMcpToolRegistry;
 import com.goatmosire.service.MapService;
+import com.gsim.mcp.GsimMcpToolRegistry;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.*;
-import java.nio.file.Path;
-import java.util.*;
 
 /**
  * MCP (Model Context Protocol) JSON-RPC 2.0 server over stdio.
@@ -31,6 +36,13 @@ public class McpServer implements Runnable {
     private volatile boolean running = true;
     private volatile InputStream stdin;
 
+    /**
+     * Creates an MCP server with both GoatMosire and GSim tool registries.
+     *
+     * @param mapService the shared map service instance
+     * @param importDir  directory for importing GSim worlds
+     */
+    @SuppressFBWarnings("EI_EXPOSE_REP2") // MapService is a shared service class, not a data object
     public McpServer(MapService mapService, Path importDir) {
         this.mapService = mapService;
         this.goatRegistry = new McpToolRegistry(mapService);
@@ -42,11 +54,16 @@ public class McpServer implements Runnable {
         start();
     }
 
+    /**
+     * Starts the MCP server loop, reading JSON-RPC 2.0 requests from stdin
+     * and writing responses to stdout. Runs until {@link #stop()} is called
+     * or stdin reaches EOF.
+     */
     public void start() {
         log.info("MCP server starting on stdio... (goatmosire + gsim tools)");
         stdin = System.in;
         try (BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-             PrintWriter out = new PrintWriter(new OutputStreamWriter(System.out), true)) {
+                PrintWriter out = new PrintWriter(new OutputStreamWriter(System.out), true)) {
 
             String line;
             while (running && (line = in.readLine()) != null) {
@@ -55,16 +72,19 @@ public class McpServer implements Runnable {
                     JsonNode req = MAPPER.readTree(line);
                     String method = req.has("method") ? req.get("method").asText() : "";
                     String id = req.has("id") && !req.get("id").isNull()
-                        ? req.get("id").toString() : null;
+                            ? req.get("id").toString()
+                            : null;
 
                     switch (method) {
-                        case "initialize"        -> out.println(jsonRpc(id, handleInitialize(req)));
-                        case "notifications/initialized" -> { /* no-op */ }
-                        case "tools/list"        -> out.println(jsonRpc(id, handleToolsList()));
-                        case "tools/call"        -> out.println(jsonRpc(id, handleToolCall(req)));
+                        case "initialize" -> out.println(jsonRpc(id, handleInitialize(req)));
+                        case "notifications/initialized" -> {
+                            /* no-op */
+                        }
+                        case "tools/list" -> out.println(jsonRpc(id, handleToolsList()));
+                        case "tools/call" -> out.println(jsonRpc(id, handleToolCall(req)));
                         default -> out.println(jsonRpcError(id, -32601, "Method not found: " + method));
                     }
-                } catch (Exception e) {
+                } catch (IOException e) {
                     log.error("MCP error", e);
                     out.println(jsonRpcError(null, -32700, "Parse error: " + e.getMessage()));
                 }
@@ -75,11 +95,15 @@ public class McpServer implements Runnable {
         log.info("MCP server stopped");
     }
 
+    /**
+     * Signals the server loop to stop and closes stdin.
+     */
     public void stop() {
         running = false;
         try {
             if (stdin != null) stdin.close();
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
     }
 
     // ── Handlers ──────────────────────────────────────────
@@ -113,7 +137,7 @@ public class McpServer implements Runnable {
             t.put("description", tool.description());
             try {
                 t.set("inputSchema", MAPPER.readTree(tool.schema()));
-            } catch (Exception e) {
+            } catch (IOException e) {
                 log.warn("Invalid schema for tool {}", tool.name(), e);
             }
             tools.add(t);
@@ -126,14 +150,13 @@ public class McpServer implements Runnable {
             t.put("description", tool.description());
             try {
                 t.set("inputSchema", MAPPER.readTree(tool.schema()));
-            } catch (Exception e) {
+            } catch (IOException e) {
                 log.warn("Invalid schema for tool {}", tool.name(), e);
             }
             tools.add(t);
         }
 
-        log.info("tools/list: {} goatmosire + {} gsim = {} total",
-            goatTools.size(), gsimTools.size(), tools.size());
+        log.info("tools/list: {} goatmosire + {} gsim = {} total", goatTools.size(), gsimTools.size(), tools.size());
 
         ObjectNode result = MAPPER.createObjectNode();
         result.set("tools", tools);
@@ -143,8 +166,7 @@ public class McpServer implements Runnable {
     private JsonNode handleToolCall(JsonNode req) {
         JsonNode params = req.get("params");
         String toolName = params.has("name") ? params.get("name").asText() : "";
-        JsonNode args = params.has("arguments") ? params.get("arguments")
-            : MAPPER.createObjectNode();
+        JsonNode args = params.has("arguments") ? params.get("arguments") : MAPPER.createObjectNode();
 
         try {
             String result;
@@ -178,8 +200,11 @@ public class McpServer implements Runnable {
         ObjectNode r = MAPPER.createObjectNode();
         r.put("jsonrpc", "2.0");
         if (id != null) {
-            try { r.set("id", MAPPER.readTree(id)); }
-            catch (Exception e) { r.put("id", id); }
+            try {
+                r.set("id", MAPPER.readTree(id));
+            } catch (IOException e) {
+                r.put("id", id);
+            }
         }
         r.set("result", result);
         return r.toString();
@@ -189,8 +214,11 @@ public class McpServer implements Runnable {
         ObjectNode r = MAPPER.createObjectNode();
         r.put("jsonrpc", "2.0");
         if (id != null) {
-            try { r.set("id", MAPPER.readTree(id)); }
-            catch (Exception e) { r.put("id", id); }
+            try {
+                r.set("id", MAPPER.readTree(id));
+            } catch (IOException e) {
+                r.put("id", id);
+            }
         }
         ObjectNode err = MAPPER.createObjectNode();
         err.put("code", code);

@@ -2,12 +2,24 @@ package com.goatmosire.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.goatmosire.map.*;
+import com.goatmosire.map.MapData;
+import com.goatmosire.map.MapDiff;
+import com.goatmosire.map.MapResolver;
+import com.goatmosire.map.MapStore;
 import com.goatmosire.service.MapService;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.*;
 
 /**
  * Registry of MCP tools exposed by GoatMosire.
@@ -21,6 +33,14 @@ public class McpToolRegistry {
     private final MapService mapService;
     private final Map<String, ToolDef> tools = new LinkedHashMap<>();
 
+    private static final Random RANDOM = new Random();
+
+    /**
+     * Creates a tool registry and registers all goatmosire_* MCP tools.
+     *
+     * @param mapService the shared map service instance
+     */
+    @SuppressFBWarnings("EI_EXPOSE_REP2") // MapService is a shared service class, not a data object
     public McpToolRegistry(MapService mapService) {
         this.mapService = mapService;
         registerAll();
@@ -28,29 +48,45 @@ public class McpToolRegistry {
 
     public record ToolDef(String name, String description, String schema) {}
 
-    public List<ToolDef> all() { return List.copyOf(tools.values()); }
+    /**
+     * Returns an immutable snapshot of all registered tool definitions.
+     *
+     * @return list of all tool definitions
+     */
+    public List<ToolDef> all() {
+        return List.copyOf(tools.values());
+    }
 
-    public String execute(String name, JsonNode args) throws Exception {
+    /**
+     * Execute the named tool with the given JSON arguments.
+     *
+     * @param name the tool name (must be registered)
+     * @param args the JSON arguments
+     * @return JSON result string
+     * @throws IOException if JSON serialization fails
+     * @throws IllegalArgumentException if the tool name is unknown
+     */
+    public String execute(String name, JsonNode args) throws IOException {
         ToolDef tool = tools.get(name);
         if (tool == null) throw new IllegalArgumentException("Unknown tool: " + name);
         return switch (name) {
-            case "goatmosire_get_hex"      -> handleGetHex(args);
-            case "goatmosire_get_province"  -> handleGetProvince(args);
+            case "goatmosire_get_hex" -> handleGetHex(args);
+            case "goatmosire_get_province" -> handleGetProvince(args);
             case "goatmosire_get_neighbors" -> handleGetNeighbors(args);
-            case "goatmosire_query_radius"  -> handleQueryRadius(args);
-            case "goatmosire_get_cities"    -> handleGetCities(args);
-            case "goatmosire_get_diff"      -> handleGetDiff(args);
-            case "goatmosire_get_history"   -> handleGetHistory(args);
+            case "goatmosire_query_radius" -> handleQueryRadius(args);
+            case "goatmosire_get_cities" -> handleGetCities(args);
+            case "goatmosire_get_diff" -> handleGetDiff(args);
+            case "goatmosire_get_history" -> handleGetHistory(args);
             case "goatmosire_find_river_path" -> handleFindRiverPath(args);
-            case "goatmosire_list_regions"  -> handleListRegions(args);
-            case "goatmosire_get_distance"  -> handleGetDistance(args);
+            case "goatmosire_list_regions" -> handleListRegions(args);
+            case "goatmosire_get_distance" -> handleGetDistance(args);
             case "goatmosire_update_region" -> handleUpdateRegion(args);
             case "goatmosire_add_hex_to_region" -> handleAddHexToRegion(args);
             case "goatmosire_remove_hex_from_region" -> handleRemoveHexFromRegion(args);
             case "goatmosire_create_region" -> handleCreateRegion(args);
             case "goatmosire_delete_region" -> handleDeleteRegion(args);
             case "goatmosire_list_checkpoints" -> handleListCheckpoints(args);
-            case "goatmosire_get_checkpoint"   -> handleGetCheckpoint(args);
+            case "goatmosire_get_checkpoint" -> handleGetCheckpoint(args);
             case "goatmosire_add_checkpoint_element" -> handleAddCheckpointElement(args);
             case "goatmosire_update_checkpoint_element" -> handleUpdateCheckpointElement(args);
             case "goatmosire_delete_checkpoint_element" -> handleDeleteCheckpointElement(args);
@@ -64,9 +100,18 @@ public class McpToolRegistry {
     // ── Registration ──────────────────────────────────────
 
     private void registerAll() {
-        register("goatmosire_get_hex",
-            "Query a single hex cell by coordinates. Returns color, terrain type, symbol, and province ownership.",
-            """
+        registerQueryTools();
+        registerDiffTools();
+        registerRegionTools();
+        registerCheckpointTools();
+        registerInitTools();
+    }
+
+    private void registerQueryTools() {
+        register(
+                "goatmosire_get_hex",
+                "Query a single hex cell by coordinates. Returns color, terrain type, symbol, and province ownership.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string","description":"GSim world ID"},
               "nodeId":{"type":"string","description":"Node ID (optional, defaults to active node)"},
@@ -74,18 +119,20 @@ public class McpToolRegistry {
               "r":{"type":"integer","description":"Axial r coordinate"}
             },"required":["worldId","q","r"]}""");
 
-        register("goatmosire_get_province",
-            "Query a province by name. Returns all hex cells belonging to it.",
-            """
+        register(
+                "goatmosire_get_province",
+                "Query a province by name. Returns all hex cells belonging to it.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
               "name":{"type":"string","description":"Province name"}
             },"required":["worldId","name"]}""");
 
-        register("goatmosire_get_neighbors",
-            "Get all 6 neighboring hex cells of a given coordinate.",
-            """
+        register(
+                "goatmosire_get_neighbors",
+                "Get all 6 neighboring hex cells of a given coordinate.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -93,9 +140,10 @@ public class McpToolRegistry {
               "r":{"type":"integer"}
             },"required":["worldId","q","r"]}""");
 
-        register("goatmosire_query_radius",
-            "Query all hex cells within a given radius of a center coordinate.",
-            """
+        register(
+                "goatmosire_query_radius",
+                "Query all hex cells within a given radius of a center coordinate.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -104,33 +152,20 @@ public class McpToolRegistry {
               "radius":{"type":"integer","description":"Search radius in hex steps"}
             },"required":["worldId","q","r","radius"]}""");
 
-        register("goatmosire_get_cities",
-            "List all cities on the map with their coordinates.",
-            """
+        register(
+                "goatmosire_get_cities",
+                "List all cities on the map with their coordinates.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"}
             },"required":["worldId"]}""");
 
-        register("goatmosire_get_diff",
-            "Get the map changes (diff) for a specific node. Shows what changed this turn.",
-            """
-            {"type":"object","properties":{
-              "worldId":{"type":"string"},
-              "nodeId":{"type":"string"}
-            },"required":["worldId","nodeId"]}""");
-
-        register("goatmosire_get_history",
-            "Get the map history across all nodes in the chain.",
-            """
-            {"type":"object","properties":{
-              "worldId":{"type":"string"},
-              "nodeId":{"type":"string"}
-            },"required":["worldId"]}""");
-
-        register("goatmosire_find_river_path",
-            "Find the minimum-cost river path from a source hex to the nearest water or map edge. Uses terrain moveCost as edge weight.",
-            """
+        register(
+                "goatmosire_find_river_path",
+                "Find the minimum-cost river path from a source hex to the nearest water "
+                        + "or map edge. Uses terrain moveCost as edge weight.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -138,17 +173,20 @@ public class McpToolRegistry {
               "r":{"type":"integer"}
             },"required":["worldId","q","r"]}""");
 
-        register("goatmosire_list_regions",
-            "List all regions with center coordinates, terrain composition, and adjacent region relationships.",
-            """
+        register(
+                "goatmosire_list_regions",
+                "List all regions with center coordinates, terrain composition, "
+                        + "and adjacent region relationships.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"}
             },"required":["worldId"]}""");
 
-        register("goatmosire_get_distance",
-            "Calculate hex distance between two points (by coordinates or region names).",
-            """
+        register(
+                "goatmosire_get_distance",
+                "Calculate hex distance between two points (by coordinates or region names).",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -159,10 +197,33 @@ public class McpToolRegistry {
               "fromRegion":{"type":"string"},
               "toRegion":{"type":"string"}
             },"required":["worldId"]}""");
+    }
 
-        register("goatmosire_update_region",
-            "Update a region's properties (hexes, tag, description, color). Auto-saves after change.",
-            """
+    private void registerDiffTools() {
+        register(
+                "goatmosire_get_diff",
+                "Get the map changes (diff) for a specific node. Shows what changed this turn.",
+                """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"}
+            },"required":["worldId","nodeId"]}""");
+
+        register(
+                "goatmosire_get_history",
+                "Get the map history across all nodes in the chain.",
+                """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"}
+            },"required":["worldId"]}""");
+    }
+
+    private void registerRegionTools() {
+        register(
+                "goatmosire_update_region",
+                "Update a region's properties (hexes, tag, description, color). " + "Auto-saves after change.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -170,12 +231,15 @@ public class McpToolRegistry {
               "tag":{"type":"string","description":"New tag (optional)"},
               "description":{"type":"string","description":"New description (optional)"},
               "color":{"type":"string","description":"New hex color (optional)"},
-              "hexes":{"type":"array","items":{"type":"string"},"description":"New hex key list e.g. ['10_-5','11_-5'] (optional)"}
+              "hexes":{"type":"array",
+                "items":{"type":"string"},
+                "description":"New hex key list e.g. ['10_-5','11_-5'] (optional)"}
             },"required":["worldId","name"]}""");
 
-        register("goatmosire_add_hex_to_region",
-            "Add a single hex to a region. Auto-saves after change.",
-            """
+        register(
+                "goatmosire_add_hex_to_region",
+                "Add a single hex to a region. Auto-saves after change.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -184,9 +248,10 @@ public class McpToolRegistry {
               "r":{"type":"integer"}
             },"required":["worldId","name","q","r"]}""");
 
-        register("goatmosire_remove_hex_from_region",
-            "Remove a single hex from a region. Auto-saves after change.",
-            """
+        register(
+                "goatmosire_remove_hex_from_region",
+                "Remove a single hex from a region. Auto-saves after change.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -195,9 +260,10 @@ public class McpToolRegistry {
               "r":{"type":"integer"}
             },"required":["worldId","name","q","r"]}""");
 
-        register("goatmosire_create_region",
-            "Create a new empty region. Auto-saves.",
-            """
+        register(
+                "goatmosire_create_region",
+                "Create a new empty region. Auto-saves.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -205,55 +271,85 @@ public class McpToolRegistry {
               "tag":{"type":"string","description":"Tag (optional)"},
               "color":{"type":"string","description":"Hex color (optional, default auto-generated)"},
               "description":{"type":"string","description":"Description (optional)"},
-              "hexes":{"type":"array","items":{"type":"string"},"description":"Initial hex keys (optional, default empty)"}
+              "hexes":{"type":"array","items":{"type":"string"},
+                "description":"Initial hex keys (optional, default empty)"}
             },"required":["worldId","name"]}""");
 
-        register("goatmosire_delete_region",
-            "Delete a region. Auto-saves.",
-            """
+        register(
+                "goatmosire_delete_region",
+                "Delete a region. Auto-saves.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
               "name":{"type":"string","description":"Region name to delete"}
             },"required":["worldId","name"]}""");
 
+        register(
+                "goatmosire_rename_region",
+                "Rename a region across all data stores: MapData provinces + all GSim "
+                        + "checkpoint references (factions, narrative, map, etc.). "
+                        + "Updates keys, tags, and text references. Auto-saves.",
+                """
+            {"type":"object","properties":{
+              "worldId":{"type":"string"},
+              "nodeId":{"type":"string"},
+              "oldName":{"type":"string","description":"Current region name"},
+              "newName":{"type":"string","description":"New region name"}
+            },"required":["worldId","oldName","newName"]}""");
+    }
+
+    private void registerCheckpointTools() {
         // ── Checkpoint (document) tools ───────────────────
 
-        register("goatmosire_list_checkpoints",
-            "List all checkpoints in a GSim node (narrative, factions, worldview, characters, map). Returns name, label, type, and element count for each.",
-            """
+        register(
+                "goatmosire_list_checkpoints",
+                "List all checkpoints in a GSim node (narrative, factions, worldview, "
+                        + "characters, map). Returns name, label, type, and element count for each.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string","description":"Node ID (optional, defaults to active node)"}
             },"required":["worldId"]}""");
 
-        register("goatmosire_get_checkpoint",
-            "Get elements from a GSim checkpoint. Optionally filter by element key or tags. Use this to read narrative entries, faction descriptions, worldview docs, or character states.",
-            """
+        register(
+                "goatmosire_get_checkpoint",
+                "Get elements from a GSim checkpoint. Optionally filter by element key or tags. "
+                        + "Use this to read narrative entries, faction descriptions, worldview docs, "
+                        + "or character states.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
-              "checkpoint":{"type":"string","description":"Checkpoint name: narrative, factions, worldview, characters, map"},
+              "checkpoint":{"type":"string",
+                "description":"Checkpoint name: narrative, factions, worldview, characters, map"},
               "key":{"type":"string","description":"Filter by specific element key (optional)"},
-              "tags":{"type":"array","items":{"type":"string"},"description":"Filter by tags — element must have ALL specified tags (optional)"}
+              "tags":{"type":"array","items":{"type":"string"},
+                "description":"Filter by tags — element must have ALL specified tags (optional)"}
             },"required":["worldId","checkpoint"]}""");
 
-        register("goatmosire_add_checkpoint_element",
-            "Add a new element to a GSim checkpoint. Use to create narrative entries, faction descriptions, character states, or worldview documents.",
-            """
+        register(
+                "goatmosire_add_checkpoint_element",
+                "Add a new element to a GSim checkpoint. Use to create narrative entries, "
+                        + "faction descriptions, character states, or worldview documents.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
-              "checkpoint":{"type":"string","description":"Checkpoint name: narrative, factions, worldview, characters, map"},
+              "checkpoint":{"type":"string",
+                "description":"Checkpoint name: narrative, factions, worldview, characters, map"},
               "key":{"type":"string","description":"Unique element key (e.g. '大汉开局')"},
-              "type":{"type":"string","description":"Element type: text, character_state, map-region, map-city (default: text)"},
+              "type":{"type":"string",
+                "description":"Element type: text, character_state, map-region, map-city (default: text)"},
               "value":{"type":"string","description":"Full text content of the element"},
-              "tags":{"type":"array","items":{"type":"string"},"description":"Tags for categorization and filtering (e.g. ['开局','大汉','推文'])"}
+              "tags":{"type":"array","items":{"type":"string"},
+                "description":"Tags for categorization and filtering (e.g. ['开局','大汉','推文'])"}
             },"required":["worldId","checkpoint","key","value"]}""");
 
-        register("goatmosire_update_checkpoint_element",
-            "Update an existing element in a GSim checkpoint. Only provided fields are changed.",
-            """
+        register(
+                "goatmosire_update_checkpoint_element",
+                "Update an existing element in a GSim checkpoint. " + "Only provided fields are changed.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -261,32 +357,30 @@ public class McpToolRegistry {
               "key":{"type":"string","description":"Element key to update"},
               "value":{"type":"string","description":"New text content (optional)"},
               "type":{"type":"string","description":"New element type (optional)"},
-              "tags":{"type":"array","items":{"type":"string"},"description":"New tags list (optional, replaces all existing tags)"}
+              "tags":{"type":"array","items":{"type":"string"},
+                "description":"New tags list (optional, replaces all existing tags)"}
             },"required":["worldId","checkpoint","key"]}""");
 
-        register("goatmosire_delete_checkpoint_element",
-            "Delete an element from a GSim checkpoint by key.",
-            """
+        register(
+                "goatmosire_delete_checkpoint_element",
+                "Delete an element from a GSim checkpoint by key.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
               "checkpoint":{"type":"string","description":"Checkpoint name"},
               "key":{"type":"string","description":"Element key to delete"}
             },"required":["worldId","checkpoint","key"]}""");
+    }
 
-        register("goatmosire_rename_region",
-            "Rename a region across all data stores: MapData provinces + all GSim checkpoint references (factions, narrative, map, etc.). Updates keys, tags, and text references. Auto-saves.",
-            """
-            {"type":"object","properties":{
-              "worldId":{"type":"string"},
-              "nodeId":{"type":"string"},
-              "oldName":{"type":"string","description":"Current region name"},
-              "newName":{"type":"string","description":"New region name"}
-            },"required":["worldId","oldName","newName"]}""");
-
-        register("goatmosire_init_nation",
-            "One-shot nation initialization: flood-fill unowned hexes from a seed, create the MapData province, sync to GSim map checkpoint, and optionally write faction/narrative/worldview checkpoint entries and a capital city. Use this to bootstrap countries in unexplored territory.",
-            """
+    private void registerInitTools() {
+        register(
+                "goatmosire_init_nation",
+                "One-shot nation initialization: flood-fill unowned hexes from a seed, "
+                        + "create the MapData province, sync to GSim map checkpoint, and optionally "
+                        + "write faction/narrative/worldview checkpoint entries and a capital city. "
+                        + "Use this to bootstrap countries in unexplored territory.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string"},
               "nodeId":{"type":"string"},
@@ -304,13 +398,16 @@ public class McpToolRegistry {
               "religion":{"type":"string","description":"Religion (optional, appended to faction tags)"}
             },"required":["worldId","name","seedQ","seedR"]}""");
 
-        register("goatmosire_update_terrain_type",
-            "Update a terrain type definition (name, color, food, gold, stone, moveCost, description). Provide only the fields you want to change.",
-            """
+        register(
+                "goatmosire_update_terrain_type",
+                "Update a terrain type definition (name, color, food, gold, stone, moveCost, "
+                        + "description). Provide only the fields you want to change.",
+                """
             {"type":"object","properties":{
               "worldId":{"type":"string","description":"GSim world ID"},
               "nodeId":{"type":"string","description":"Node ID (optional, defaults to active node)"},
-              "key":{"type":"string","description":"Terrain key: water, lowland, hills, plains, mountain, swamp, desert, tundra, forest"},
+              "key":{"type":"string",
+                "description":"Terrain key: water, lowland, hills, plains, mountain, swamp, desert, tundra, forest"},
               "name":{"type":"string","description":"New display name (e.g. '山区')"},
               "color":{"type":"string","description":"New hex color (e.g. '#B8A88A')"},
               "food":{"type":"integer","description":"Food output"},
@@ -319,7 +416,6 @@ public class McpToolRegistry {
               "moveCost":{"type":"integer","description":"Movement cost"},
               "description":{"type":"string","description":"Tooltip description"}
             },"required":["worldId","key"]}""");
-
     }
 
     private void register(String name, String description, String schema) {
@@ -328,7 +424,7 @@ public class McpToolRegistry {
 
     // ── Tool implementations ──────────────────────────────
 
-    private String handleGetHex(JsonNode args) throws Exception {
+    private String handleGetHex(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         int q = args.get("q").asInt();
@@ -339,25 +435,31 @@ public class McpToolRegistry {
         if (cell == null) return toJson(Map.of("found", false, "q", q, "r", r));
         // Find owning province
         String province = map.provinces().entrySet().stream()
-            .filter(e -> e.getValue().hexes().contains(key))
-            .map(Map.Entry::getKey).findFirst().orElse(null);
+                .filter(e -> e.getValue().hexes().contains(key))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("found", true);
-        result.put("q", q); result.put("r", r);
-        result.put("color", cell.color()); result.put("terrain", cell.terrain());
+        result.put("q", q);
+        result.put("r", r);
+        result.put("color", cell.color());
+        result.put("terrain", cell.terrain());
         if (cell.symbol() != null) result.put("symbol", cell.symbol());
         if (cell.description() != null && !cell.description().isEmpty()) result.put("description", cell.description());
         if (province != null) result.put("province", province);
         // Include terrain properties
         MapData.TerrainType tt = map.terrainTypes().get(cell.terrain());
         if (tt != null) {
-            result.put("food", tt.food()); result.put("gold", tt.gold()); result.put("stone", tt.stone());
+            result.put("food", tt.food());
+            result.put("gold", tt.gold());
+            result.put("stone", tt.stone());
             result.put("moveCost", tt.moveCost());
         }
         return toJson(result);
     }
 
-    private String handleGetProvince(JsonNode args) throws Exception {
+    private String handleGetProvince(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         String name = args.get("name").asText();
@@ -369,9 +471,11 @@ public class McpToolRegistry {
             MapData.HexCell cell = map.hexes().get(key);
             int[] coords = MapData.parseHexKey(key);
             Map<String, Object> h = new LinkedHashMap<>();
-            h.put("q", coords[0]); h.put("r", coords[1]);
+            h.put("q", coords[0]);
+            h.put("r", coords[1]);
             if (cell != null) {
-                h.put("color", cell.color()); h.put("terrain", cell.terrain());
+                h.put("color", cell.color());
+                h.put("terrain", cell.terrain());
                 if (cell.symbol() != null) h.put("symbol", cell.symbol());
             }
             hexes.add(h);
@@ -382,43 +486,58 @@ public class McpToolRegistry {
             regionHexSets.put(e.getKey(), new HashSet<>(e.getValue().hexes()));
         }
         Set<String> ownSet = regionHexSets.get(name);
-        List<Map<String, Object>> adj = ownSet != null
-            ? computeAdjacency(name, ownSet, regionHexSets) : List.of();
+        List<Map<String, Object>> adj = ownSet != null ? computeAdjacency(name, ownSet, regionHexSets) : List.of();
         int[] center = computeCenter(prov.hexes(), map);
         Map<String, Integer> terrainComp = computeTerrainComposition(prov, map);
 
-        return toJson(Map.of("found", true, "name", name, "hexCount", hexes.size(), "hexes", hexes,
-            "tag", prov.tag() != null ? prov.tag() : "",
-            "description", prov.description() != null ? prov.description() : "",
-            "center", Map.of("q", center[0], "r", center[1]),
-            "adjacentRegions", adj,
-            "adjacentCount", adj.size(),
-            "terrainComposition", terrainComp));
+        return toJson(Map.of(
+                "found",
+                true,
+                "name",
+                name,
+                "hexCount",
+                hexes.size(),
+                "hexes",
+                hexes,
+                "tag",
+                prov.tag() != null ? prov.tag() : "",
+                "description",
+                prov.description() != null ? prov.description() : "",
+                "center",
+                Map.of("q", center[0], "r", center[1]),
+                "adjacentRegions",
+                adj,
+                "adjacentCount",
+                adj.size(),
+                "terrainComposition",
+                terrainComp));
     }
 
-    private String handleGetNeighbors(JsonNode args) throws Exception {
+    private String handleGetNeighbors(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         int q = args.get("q").asInt();
         int r = args.get("r").asInt();
         MapData map = nodeId != null ? mapService.resolve(worldId, nodeId) : mapService.resolveActive(worldId);
-        int[][] dirs = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+        int[][] dirs = {{1, 0}, {1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1}};
         List<Map<String, Object>> neighbors = new ArrayList<>();
         for (int[] d : dirs) {
             String key = MapData.hexKey(q + d[0], r + d[1]);
             MapData.HexCell cell = map.hexes().get(key);
             Map<String, Object> n = new LinkedHashMap<>();
-            n.put("q", q + d[0]); n.put("r", r + d[1]);
+            n.put("q", q + d[0]);
+            n.put("r", r + d[1]);
             n.put("exists", cell != null);
             if (cell != null) {
-                n.put("color", cell.color()); n.put("terrain", cell.terrain());
+                n.put("color", cell.color());
+                n.put("terrain", cell.terrain());
             }
             neighbors.add(n);
         }
-        return toJson(Map.of("center", Map.of("q",q,"r",r), "neighbors", neighbors));
+        return toJson(Map.of("center", Map.of("q", q, "r", r), "neighbors", neighbors));
     }
 
-    private String handleQueryRadius(JsonNode args) throws Exception {
+    private String handleQueryRadius(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         int cq = args.get("q").asInt();
@@ -432,16 +551,19 @@ public class McpToolRegistry {
                 MapData.HexCell cell = map.hexes().get(key);
                 if (cell != null) {
                     Map<String, Object> h = new LinkedHashMap<>();
-                    h.put("q", cq + dq); h.put("r", cr + dr);
-                    h.put("color", cell.color()); h.put("terrain", cell.terrain());
+                    h.put("q", cq + dq);
+                    h.put("r", cr + dr);
+                    h.put("color", cell.color());
+                    h.put("terrain", cell.terrain());
                     results.add(h);
                 }
             }
         }
-        return toJson(Map.of("center", Map.of("q",cq,"r",cr), "radius", radius, "count", results.size(), "hexes", results));
+        return toJson(Map.of(
+                "center", Map.of("q", cq, "r", cr), "radius", radius, "count", results.size(), "hexes", results));
     }
 
-    private String handleGetCities(JsonNode args) throws Exception {
+    private String handleGetCities(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         MapData map = nodeId != null ? mapService.resolve(worldId, nodeId) : mapService.resolveActive(worldId);
@@ -449,7 +571,8 @@ public class McpToolRegistry {
         for (var e : map.cities().entrySet()) {
             Map<String, Object> c = new LinkedHashMap<>();
             c.put("name", e.getKey());
-            c.put("q", e.getValue().q()); c.put("r", e.getValue().r());
+            c.put("q", e.getValue().q());
+            c.put("r", e.getValue().r());
             String key = MapData.hexKey(e.getValue().q(), e.getValue().r());
             MapData.HexCell cell = map.hexes().get(key);
             if (cell != null) c.put("terrain", cell.terrain());
@@ -458,21 +581,27 @@ public class McpToolRegistry {
         return toJson(Map.of("cities", cities));
     }
 
-    private String handleGetDiff(JsonNode args) throws Exception {
+    private String handleGetDiff(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.get("nodeId").asText();
-        MapDiff diff = MapStore.loadDiff(
-            mapService.getWorldsDir(),
-            worldId, nodeId);
+        MapDiff diff = MapStore.loadDiff(mapService.getWorldsDir(), worldId, nodeId);
         if (diff == null) return toJson(Map.of("hasDiff", false, "nodeId", nodeId));
-        return toJson(Map.of("hasDiff", true, "nodeId", nodeId,
-            "changedCount", diff.changed().size(),
-            "removedCount", diff.removed().size(),
-            "changed", diff.changed().keySet(),
-            "removed", diff.removed()));
+        return toJson(Map.of(
+                "hasDiff",
+                true,
+                "nodeId",
+                nodeId,
+                "changedCount",
+                diff.changed().size(),
+                "removedCount",
+                diff.removed().size(),
+                "changed",
+                diff.changed().keySet(),
+                "removed",
+                diff.removed()));
     }
 
-    private String handleGetHistory(JsonNode args) throws Exception {
+    private String handleGetHistory(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         if (nodeId == null) {
@@ -487,13 +616,18 @@ public class McpToolRegistry {
         List<MapResolver.HistoryEntry> history = mapService.history(worldId, nodeId);
         List<Map<String, Object>> entries = new ArrayList<>();
         for (var h : history) {
-            entries.add(Map.of("nodeId", h.nodeId(), "hasOwnMap", h.hasOwnMap(),
-                "hexCount", h.map().hexes().size()));
+            entries.add(Map.of(
+                    "nodeId",
+                    h.nodeId(),
+                    "hasOwnMap",
+                    h.hasOwnMap(),
+                    "hexCount",
+                    h.map().hexes().size()));
         }
         return toJson(Map.of("worldId", worldId, "chain", entries));
     }
 
-    private String handleFindRiverPath(JsonNode args) throws Exception {
+    private String handleFindRiverPath(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         int q = args.get("q").asInt();
@@ -502,7 +636,7 @@ public class McpToolRegistry {
         return toJson(Map.of("source", Map.of("q", q, "r", r), "path", path, "length", path.size()));
     }
 
-    private String handleListRegions(JsonNode args) throws Exception {
+    private String handleListRegions(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         MapData map = nodeId != null ? mapService.resolve(worldId, nodeId) : mapService.resolveActive(worldId);
@@ -547,22 +681,28 @@ public class McpToolRegistry {
         return toJson(Map.of("worldId", worldId, "regions", regions, "count", regions.size()));
     }
 
-    private String handleGetDistance(JsonNode args) throws Exception {
+    private String handleGetDistance(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : null;
         MapData map = nodeId != null ? mapService.resolve(worldId, nodeId) : mapService.resolveActive(worldId);
 
-        int fromQ, fromR, toQ, toR;
-        String fromLabel, toLabel;
+        int fromQ;
+        int fromR;
+        int toQ;
+        int toR;
+        String fromLabel;
+        String toLabel;
 
         if (args.has("fromRegion") && args.has("toRegion")) {
             MapData.Province fromP = map.provinces().get(args.get("fromRegion").asText());
             MapData.Province toP = map.provinces().get(args.get("toRegion").asText());
-            if (fromP == null || toP == null)
-                return toJson(Map.of("error", "Region not found"));
+            if (fromP == null || toP == null) return toJson(Map.of("error", "Region not found"));
             int[] fc = computeCenter(fromP.hexes(), map);
             int[] tc = computeCenter(toP.hexes(), map);
-            fromQ = fc[0]; fromR = fc[1]; toQ = tc[0]; toR = tc[1];
+            fromQ = fc[0];
+            fromR = fc[1];
+            toQ = tc[0];
+            toR = tc[1];
             fromLabel = args.get("fromRegion").asText();
             toLabel = args.get("toRegion").asText();
         } else if (args.has("fromQ") && args.has("toQ")) {
@@ -578,10 +718,16 @@ public class McpToolRegistry {
 
         int hexDist = hexDistance(fromQ, fromR, toQ, toR);
         return toJson(Map.of(
-            "from", fromLabel, "to", toLabel,
-            "fromCoord", Map.of("q", fromQ, "r", fromR),
-            "toCoord", Map.of("q", toQ, "r", toR),
-            "hexDistance", hexDist));
+                "from",
+                fromLabel,
+                "to",
+                toLabel,
+                "fromCoord",
+                Map.of("q", fromQ, "r", fromR),
+                "toCoord",
+                Map.of("q", toQ, "r", toR),
+                "hexDistance",
+                hexDist));
     }
 
     // ── Geometry helpers ───────────────────────────────────
@@ -591,13 +737,15 @@ public class McpToolRegistry {
     }
 
     private static int[] computeCenter(List<String> hexes, MapData map) {
-        if (hexes == null || hexes.isEmpty()) return new int[]{0, 0};
-        int sq = 0, sr = 0;
+        if (hexes == null || hexes.isEmpty()) return new int[] {0, 0};
+        int sq = 0;
+        int sr = 0;
         for (String hk : hexes) {
             int[] qr = MapData.parseHexKey(hk);
-            sq += qr[0]; sr += qr[1];
+            sq += qr[0];
+            sr += qr[1];
         }
-        return new int[]{Math.round((float) sq / hexes.size()), Math.round((float) sr / hexes.size())};
+        return new int[] {Math.round((float) sq / hexes.size()), Math.round((float) sr / hexes.size())};
     }
 
     private static Map<String, Integer> computeTerrainComposition(MapData.Province prov, MapData map) {
@@ -610,7 +758,7 @@ public class McpToolRegistry {
         return comp;
     }
 
-    private static final int[][] DIRS = {{1,0},{1,-1},{0,-1},{-1,0},{-1,1},{0,1}};
+    private static final int[][] DIRS = {{1, 0}, {1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1}};
 
     private static List<Map<String, Object>> computeAdjacency(
             String ownName, Set<String> ownHexes, Map<String, Set<String>> allRegionHexes) {
@@ -637,7 +785,7 @@ public class McpToolRegistry {
 
     // ── Write tools ───────────────────────────────────────
 
-    private String handleUpdateRegion(JsonNode args) throws Exception {
+    private String handleUpdateRegion(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
         String name = args.get("name").asText();
@@ -652,7 +800,9 @@ public class McpToolRegistry {
         List<String> newHexes = prov.hexes();
         if (args.has("hexes")) {
             newHexes = new ArrayList<>();
-            for (JsonNode n : args.get("hexes")) newHexes.add(n.asText());
+            for (JsonNode n : args.get("hexes")) {
+                newHexes.add(n.asText());
+            }
         }
 
         // Build updated province
@@ -660,17 +810,26 @@ public class McpToolRegistry {
         updatedProvinces.put(name, new MapData.Province(newHexes, newColor, newTag, newDesc));
 
         // Rebuild MapData with updated provinces
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                updatedProvinces,
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                map.compressedRegions(),
+                map.pathwayGroups());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
-        return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(),
-            "tag", newTag, "description", newDesc));
+        return toJson(
+                Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "tag", newTag, "description", newDesc));
     }
 
-    private String handleAddHexToRegion(JsonNode args) throws Exception {
+    private String handleAddHexToRegion(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
         String name = args.get("name").asText();
@@ -681,26 +840,35 @@ public class McpToolRegistry {
         if (prov == null) return toJson(Map.of("ok", false, "error", "Region not found: " + name));
 
         String hexKey = MapData.hexKey(q, r);
-        if (!map.hexes().containsKey(hexKey))
-            return toJson(Map.of("ok", false, "error", "Hex not on map: " + hexKey));
+        if (!map.hexes().containsKey(hexKey)) return toJson(Map.of("ok", false, "error", "Hex not on map: " + hexKey));
 
         List<String> newHexes = new ArrayList<>(prov.hexes());
         if (newHexes.contains(hexKey))
-            return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "note", "hex already in region"));
+            return toJson(
+                    Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "note", "hex already in region"));
 
         newHexes.add(hexKey);
         Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
         updatedProvinces.put(name, new MapData.Province(newHexes, prov.color(), prov.tag(), prov.description()));
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                updatedProvinces,
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                map.compressedRegions(),
+                map.pathwayGroups());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
         return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "added", hexKey));
     }
 
-    private String handleRemoveHexFromRegion(JsonNode args) throws Exception {
+    private String handleRemoveHexFromRegion(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
         String name = args.get("name").asText();
@@ -713,20 +881,30 @@ public class McpToolRegistry {
         String hexKey = MapData.hexKey(q, r);
         List<String> newHexes = new ArrayList<>(prov.hexes());
         if (!newHexes.remove(hexKey))
-            return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "note", "hex was not in region"));
+            return toJson(
+                    Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "note", "hex was not in region"));
 
         Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
         updatedProvinces.put(name, new MapData.Province(newHexes, prov.color(), prov.tag(), prov.description()));
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                updatedProvinces,
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                map.compressedRegions(),
+                map.pathwayGroups());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
         return toJson(Map.of("ok", true, "name", name, "hexCount", newHexes.size(), "removed", hexKey));
     }
 
-    private String handleCreateRegion(JsonNode args) throws Exception {
+    private String handleCreateRegion(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
         String name = args.get("name").asText();
@@ -736,26 +914,37 @@ public class McpToolRegistry {
 
         String tag = args.has("tag") ? args.get("tag").asText() : "";
         String desc = args.has("description") ? args.get("description").asText() : "";
-        String color = args.has("color") ? args.get("color").asText()
-            : String.format("#%06x", new java.util.Random().nextInt(0xFFFFFF) | 0x404040);
+        String color = args.has("color")
+                ? args.get("color").asText()
+                : String.format("#%06x", RANDOM.nextInt(0xFFFFFF) | 0x404040);
         List<String> hexes = new ArrayList<>();
         if (args.has("hexes")) {
-            for (JsonNode n : args.get("hexes")) hexes.add(n.asText());
+            for (JsonNode n : args.get("hexes")) {
+                hexes.add(n.asText());
+            }
         }
 
         Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
         updatedProvinces.put(name, new MapData.Province(hexes, color, tag, desc));
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                updatedProvinces,
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                map.compressedRegions(),
+                map.pathwayGroups());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
-        return toJson(Map.of("ok", true, "name", name, "hexCount", hexes.size(),
-            "tag", tag, "color", color));
+        return toJson(Map.of("ok", true, "name", name, "hexCount", hexes.size(), "tag", tag, "color", color));
     }
 
-    private String handleDeleteRegion(JsonNode args) throws Exception {
+    private String handleDeleteRegion(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
         String name = args.get("name").asText();
@@ -765,9 +954,18 @@ public class McpToolRegistry {
 
         Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
         updatedProvinces.remove(name);
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                updatedProvinces,
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                map.compressedRegions(),
+                map.pathwayGroups());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -776,14 +974,14 @@ public class McpToolRegistry {
 
     // ── Checkpoint tools ──────────────────────────────────
 
-    private String handleListCheckpoints(JsonNode args) throws Exception {
+    private String handleListCheckpoints(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
         return toJson(mapService.getCheckpointService().listCheckpoints(worldId, nodeId));
     }
 
-    private String handleGetCheckpoint(JsonNode args) throws Exception {
+    private String handleGetCheckpoint(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
@@ -792,12 +990,14 @@ public class McpToolRegistry {
         List<String> tags = null;
         if (args.has("tags") && args.get("tags").isArray()) {
             tags = new ArrayList<>();
-            for (JsonNode t : args.get("tags")) tags.add(t.asText());
+            for (JsonNode t : args.get("tags")) {
+                tags.add(t.asText());
+            }
         }
         return toJson(mapService.getCheckpointService().getCheckpoint(worldId, nodeId, cp, key, tags));
     }
 
-    private String handleAddCheckpointElement(JsonNode args) throws Exception {
+    private String handleAddCheckpointElement(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
@@ -808,12 +1008,14 @@ public class McpToolRegistry {
         List<String> tags = null;
         if (args.has("tags") && args.get("tags").isArray()) {
             tags = new ArrayList<>();
-            for (JsonNode t : args.get("tags")) tags.add(t.asText());
+            for (JsonNode t : args.get("tags")) {
+                tags.add(t.asText());
+            }
         }
         return toJson(mapService.getCheckpointService().addElement(worldId, nodeId, cp, key, type, value, tags));
     }
 
-    private String handleUpdateCheckpointElement(JsonNode args) throws Exception {
+    private String handleUpdateCheckpointElement(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
@@ -824,12 +1026,14 @@ public class McpToolRegistry {
         List<String> tags = null;
         if (args.has("tags") && args.get("tags").isArray()) {
             tags = new ArrayList<>();
-            for (JsonNode t : args.get("tags")) tags.add(t.asText());
+            for (JsonNode t : args.get("tags")) {
+                tags.add(t.asText());
+            }
         }
         return toJson(mapService.getCheckpointService().updateElement(worldId, nodeId, cp, key, value, type, tags));
     }
 
-    private String handleDeleteCheckpointElement(JsonNode args) throws Exception {
+    private String handleDeleteCheckpointElement(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
@@ -838,7 +1042,7 @@ public class McpToolRegistry {
         return toJson(mapService.getCheckpointService().deleteElement(worldId, nodeId, cp, key));
     }
 
-    private String handleRenameRegion(JsonNode args) throws Exception {
+    private String handleRenameRegion(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
@@ -847,7 +1051,7 @@ public class McpToolRegistry {
         return toJson(mapService.renameRegion(worldId, nodeId, oldName, newName));
     }
 
-    private String handleInitNation(JsonNode args) throws Exception {
+    private String handleInitNation(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : readActiveNodeId(worldId);
         if (nodeId == null) return toJson(Map.of("error", "No active node for world: " + worldId));
@@ -866,9 +1070,10 @@ public class McpToolRegistry {
 
         // Build owned hex set
         Set<String> owned = new HashSet<>();
-        for (var p : map.provinces().values()) owned.addAll(p.hexes());
-        if (owned.contains(seedKey))
-            return toJson(Map.of("ok", false, "error", "Seed hex already owned"));
+        for (var p : map.provinces().values()) {
+            owned.addAll(p.hexes());
+        }
+        if (owned.contains(seedKey)) return toJson(Map.of("ok", false, "error", "Seed hex already owned"));
 
         // ── 1. Flood-fill unowned hexes ──
         Set<String> collected = new LinkedHashSet<>();
@@ -885,20 +1090,29 @@ public class McpToolRegistry {
                 }
             }
         }
-        if (collected.isEmpty())
-            return toJson(Map.of("ok", false, "error", "No unowned hexes reachable from seed"));
+        if (collected.isEmpty()) return toJson(Map.of("ok", false, "error", "No unowned hexes reachable from seed"));
 
         // ── 2. Create province ──
         String tag = args.has("tag") ? args.get("tag").asText() : "Nation";
-        String color = args.has("color") ? args.get("color").asText()
-            : String.format("#%06x", new java.util.Random().nextInt(0xFFFFFF) | 0x404040);
+        String color = args.has("color")
+                ? args.get("color").asText()
+                : String.format("#%06x", RANDOM.nextInt(0xFFFFFF) | 0x404040);
         List<String> hexList = new ArrayList<>(collected);
 
         Map<String, MapData.Province> updatedProvinces = new LinkedHashMap<>(map.provinces());
         updatedProvinces.put(name, new MapData.Province(hexList, color, tag, ""));
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), updatedProvinces, map.cities(),
-            map.rivers(), map.roads(), map.terrainTypes(), map.compressedRegions(), map.pathwayGroups());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                updatedProvinces,
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                map.terrainTypes(),
+                map.compressedRegions(),
+                map.pathwayGroups());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
@@ -914,47 +1128,87 @@ public class McpToolRegistry {
 
         // ── 4. Faction checkpoint ──
         if (args.has("faction") && !args.get("faction").asText().isBlank()) {
-            cp.addElement(worldId, nodeId, "factions", name, "text",
-                args.get("faction").asText(), tags);
+            cp.addElement(
+                    worldId,
+                    nodeId,
+                    "factions",
+                    name,
+                    "text",
+                    args.get("faction").asText(),
+                    tags);
             created.add("factions:" + name);
         }
 
         // ── 5. Narrative checkpoint ──
         if (args.has("narrative") && !args.get("narrative").asText().isBlank()) {
-            cp.addElement(worldId, nodeId, "narrative", name + "开局", "text",
-                args.get("narrative").asText(), tags);
+            cp.addElement(
+                    worldId,
+                    nodeId,
+                    "narrative",
+                    name + "开局",
+                    "text",
+                    args.get("narrative").asText(),
+                    tags);
             created.add("narrative:" + name + "开局");
         }
 
         // ── 6. Worldview checkpoint ──
         if (args.has("worldview") && !args.get("worldview").asText().isBlank()) {
-            cp.addElement(worldId, nodeId, "worldview", name + "世界观", "text",
-                args.get("worldview").asText(), tags);
+            cp.addElement(
+                    worldId,
+                    nodeId,
+                    "worldview",
+                    name + "世界观",
+                    "text",
+                    args.get("worldview").asText(),
+                    tags);
             created.add("worldview:" + name + "世界观");
         }
 
         // ── 7. Capital city ──
         if (args.has("capital") && !args.get("capital").asText().isBlank()) {
             String capitalName = args.get("capital").asText();
-            String cityValue = "名称: " + capitalName + "\n类型: 首都\n所属: " + name +
-                "\n描述: " + (args.has("faction") ? args.get("faction").asText().split("\n")[0] : "");
-            cp.addElement(worldId, nodeId, "map", "City:" + capitalName, "map-city",
-                cityValue, List.of("首都", name, capitalName));
+            String cityValue = "名称: " + capitalName + "\n类型: 首都\n所属: " + name + "\n描述: "
+                    + (args.has("faction") ? args.get("faction").asText().split("\n")[0] : "");
+            cp.addElement(
+                    worldId,
+                    nodeId,
+                    "map",
+                    "City:" + capitalName,
+                    "map-city",
+                    cityValue,
+                    List.of("首都", name, capitalName));
             created.add("map:City:" + capitalName);
         }
 
         // ── 8. Compute center ──
-        int sq = 0, sr = 0;
-        for (String hk : hexList) { int[] qr = MapData.parseHexKey(hk); sq += qr[0]; sr += qr[1]; }
+        int sq = 0;
+        int sr = 0;
+        for (String hk : hexList) {
+            int[] qr = MapData.parseHexKey(hk);
+            sq += qr[0];
+            sr += qr[1];
+        }
 
         log.info("init_nation '{}': {} hexes, {} checkpoint entries created", name, hexList.size(), created.size());
-        return toJson(Map.of("ok", true, "name", name, "hexCount", hexList.size(),
-            "tag", tag, "color", color,
-            "center", Map.of("q", Math.round((float)sq/hexList.size()), "r", Math.round((float)sr/hexList.size())),
-            "checkpointsCreated", created));
+        return toJson(Map.of(
+                "ok",
+                true,
+                "name",
+                name,
+                "hexCount",
+                hexList.size(),
+                "tag",
+                tag,
+                "color",
+                color,
+                "center",
+                Map.of("q", Math.round((float) sq / hexList.size()), "r", Math.round((float) sr / hexList.size())),
+                "checkpointsCreated",
+                created));
     }
 
-    private String handleUpdateTerrainType(JsonNode args) throws Exception {
+    private String handleUpdateTerrainType(JsonNode args) throws IOException {
         String worldId = args.get("worldId").asText();
         String nodeId = args.has("nodeId") ? args.get("nodeId").asText() : "n0000";
         String key = args.get("key").asText();
@@ -972,17 +1226,41 @@ public class McpToolRegistry {
         String newDesc = args.has("description") ? args.get("description").asText() : existing.description();
 
         var updatedTypes = new LinkedHashMap<>(map.terrainTypes());
-        updatedTypes.put(key, new MapData.TerrainType(newName, newColor, newFood, newGold, newStone, newMoveCost, newDesc));
+        updatedTypes.put(
+                key, new MapData.TerrainType(newName, newColor, newFood, newGold, newStone, newMoveCost, newDesc));
 
-        MapData updated = new MapData(map.gridSize(), map.hexOrientation(), map.hexes(),
-            map.terrainBlocks(), map.provinces(), map.cities(),
-            map.rivers(), map.roads(), updatedTypes, map.compressedRegions(), new LinkedHashMap<>());
+        MapData updated = new MapData(
+                map.gridSize(),
+                map.hexOrientation(),
+                map.hexes(),
+                map.terrainBlocks(),
+                map.provinces(),
+                map.cities(),
+                map.rivers(),
+                map.roads(),
+                updatedTypes,
+                map.compressedRegions(),
+                new LinkedHashMap<>());
         mapService.saveFull(worldId, nodeId, updated);
         mapService.syncToGSimNode(worldId, nodeId);
 
-        return toJson(Map.of("ok", true, "key", key,
-            "name", newName, "color", newColor,
-            "food", newFood, "gold", newGold, "stone", newStone, "moveCost", newMoveCost));
+        return toJson(Map.of(
+                "ok",
+                true,
+                "key",
+                key,
+                "name",
+                newName,
+                "color",
+                newColor,
+                "food",
+                newFood,
+                "gold",
+                newGold,
+                "stone",
+                newStone,
+                "moveCost",
+                newMoveCost));
     }
 
     /** Read the active node ID from active.json. */
@@ -992,10 +1270,12 @@ public class McpToolRegistry {
             if (!java.nio.file.Files.exists(file)) return null;
             var node = MAPPER.readTree(file.toFile());
             return node.has("nodeId") ? node.get("nodeId").asText() : null;
-        } catch (Exception e) { return null; }
+        } catch (IOException e) {
+            return null;
+        }
     }
 
-    private static String toJson(Object obj) throws Exception {
+    private static String toJson(Object obj) throws IOException {
         return MAPPER.writeValueAsString(obj);
     }
 }

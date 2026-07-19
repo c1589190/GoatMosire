@@ -1,7 +1,15 @@
 package com.goatmosire.service;
 
 import com.goatmosire.map.MapData;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Hex grid geometry utilities shared by TerrainCanvas and the editor.
@@ -22,45 +30,86 @@ public final class TerrainGeometry {
     // Edge 0 (right) → E(1,0), Edge 1 (bottom-right) → SE(0,1),
     // Edge 2 (bottom-left) → SW(-1,1), Edge 3 (left) → W(-1,0),
     // Edge 4 (top-left) → NW(0,-1), Edge 5 (top-right) → NE(1,-1)
-    public static final int[][] DIRS = {{1,0},{0,1},{-1,1},{-1,0},{0,-1},{1,-1}};
+    static final int[][] DIRS = {{1, 0}, {0, 1}, {-1, 1}, {-1, 0}, {0, -1}, {1, -1}};
 
-    /** Hex center to pixel coordinates. */
+    /**
+     * Hex center to pixel coordinates.
+     *
+     * @param q axial column
+     * @param r axial row
+     * @return {x, y} pixel coordinates
+     */
     public static double[] hexToPixel(int q, int r) {
         double x = SIZE * (Math.sqrt(3) * q + Math.sqrt(3) / 2.0 * r);
         double y = SIZE * (3.0 / 2.0 * r);
-        return new double[]{x, y};
+        return new double[] {x, y};
     }
 
-    /** Pixel to fractional hex coordinates (not rounded). */
+    /**
+     * Pixel to fractional hex coordinates (not rounded).
+     *
+     * @param px pixel x
+     * @param py pixel y
+     * @return {fq, fr} fractional axial coordinates
+     */
     public static double[] pixelToHexFrac(double px, double py) {
         double fq = (Math.sqrt(3) / 3.0 * px - 1.0 / 3.0 * py) / SIZE;
         double fr = (2.0 / 3.0 * py) / SIZE;
-        return new double[]{fq, fr};
+        return new double[] {fq, fr};
     }
 
-    /** Pixel to the nearest hex coordinates (cube-rounded). */
+    /**
+     * Pixel to the nearest hex coordinates (cube-rounded).
+     *
+     * @param px pixel x
+     * @param py pixel y
+     * @return {q, r} nearest axial hex coordinates
+     */
     public static int[] pixelToHex(double px, double py) {
         double[] f = pixelToHexFrac(px, py);
         return hexRound(f[0], f[1]);
     }
 
-    /** Axial cube rounding. */
+    /**
+     * Axial cube rounding.
+     *
+     * @param fq fractional q
+     * @param fr fractional r
+     * @return {q, r} rounded axial coordinates
+     */
     public static int[] hexRound(double fq, double fr) {
         double fs = -fq - fr;
-        int q = (int) Math.round(fq), r = (int) Math.round(fr), s = (int) Math.round(fs);
-        double dq = Math.abs(q - fq), dr = Math.abs(r - fr), ds = Math.abs(s - fs);
+        int q = (int) Math.round(fq);
+        int r = (int) Math.round(fr);
+        int s = (int) Math.round(fs);
+        double dq = Math.abs(q - fq);
+        double dr = Math.abs(r - fr);
+        double ds = Math.abs(s - fs);
         if (dq > dr && dq > ds) q = -r - s;
         else if (dr > ds) r = -q - s;
-        return new int[]{q, r};
+        return new int[] {q, r};
     }
 
-    /** Hex key format: "q_r" */
-    public static String hexKey(int q, int r) { return q + "_" + r; }
+    /**
+     * Hex key format: "q_r".
+     *
+     * @param q axial column
+     * @param r axial row
+     * @return key string "q_r"
+     */
+    public static String hexKey(int q, int r) {
+        return q + "_" + r;
+    }
 
-    /** Parse hex key back to coordinates. */
+    /**
+     * Parse hex key back to coordinates.
+     *
+     * @param key hex key "q_r"
+     * @return {q, r} axial coordinates
+     */
     public static int[] parseHexKey(String key) {
         String[] parts = key.split("_");
-        return new int[]{Integer.parseInt(parts[0]), Integer.parseInt(parts[1])};
+        return new int[] {Integer.parseInt(parts[0]), Integer.parseInt(parts[1])};
     }
 
     // ── Polygon tests ────────────────────────────────────────
@@ -68,13 +117,19 @@ public final class TerrainGeometry {
     /**
      * Ray-casting point-in-polygon test.
      * Edge case: points exactly on boundary return false (conservative).
+     *
+     * @param px   point x
+     * @param py   point y
+     * @param poly polygon vertex list
+     * @return true if point is strictly inside the polygon
      */
     public static boolean pointInPolygon(double px, double py, List<MapData.Pt> poly) {
         if (poly == null || poly.size() < 3) return false;
         boolean inside = false;
         int n = poly.size();
         for (int i = 0, j = n - 1; i < n; j = i++) {
-            MapData.Pt a = poly.get(j), b = poly.get(i);
+            MapData.Pt a = poly.get(j);
+            MapData.Pt b = poly.get(i);
             if ((a.y() > py) != (b.y() > py)) {
                 double intersectX = a.x() + (py - a.y()) * (b.x() - a.x()) / (b.y() - a.y());
                 if (px < intersectX) inside = !inside;
@@ -93,24 +148,30 @@ public final class TerrainGeometry {
      * @param boundary  closed polygon (first != last OK, either way accepted)
      * @param mapRadius safety bound for flood fill (hex coord limit)
      * @param seedKey   preferred seed hex or empty string
+     * @return set of hex keys inside the polygon boundary
      */
     public static Set<String> hexSetFromPolygon(List<MapData.Pt> boundary, int mapRadius, String seedKey) {
         if (boundary == null || boundary.size() < 3) return Collections.emptySet();
 
         // Normalize: ensure closed
         List<MapData.Pt> poly = new ArrayList<>(boundary);
-        MapData.Pt first = poly.get(0), last = poly.get(poly.size() - 1);
-        if (Math.abs(first.x() - last.x()) > 0.01 || Math.abs(first.y() - last.y()) > 0.01)
-            poly.add(first);
+        MapData.Pt first = poly.get(0);
+        MapData.Pt last = poly.get(poly.size() - 1);
+        if (Math.abs(first.x() - last.x()) > 0.01 || Math.abs(first.y() - last.y()) > 0.01) poly.add(first);
 
         // Build candidate seed keys
         List<String> seeds = new ArrayList<>();
         if (seedKey != null && !seedKey.isEmpty()) seeds.add(seedKey);
 
         // Centroid as fallback seed
-        double cx = 0, cy = 0;
-        for (MapData.Pt p : poly) { cx += p.x(); cy += p.y(); }
-        cx /= poly.size(); cy /= poly.size();
+        double cx = 0;
+        double cy = 0;
+        for (MapData.Pt p : poly) {
+            cx += p.x();
+            cy += p.y();
+        }
+        cx /= poly.size();
+        cy /= poly.size();
         int[] ch = pixelToHex(cx, cy);
         seeds.add(hexKey(ch[0], ch[1]));
 
@@ -138,7 +199,8 @@ public final class TerrainGeometry {
                 if (!pointInPolygon(hpxy[0], hpxy[1], poly)) continue;
                 hexSet.add(key);
                 for (int[] d : DIRS) {
-                    int nq = h[0] + d[0], nr = h[1] + d[1];
+                    int nq = h[0] + d[0];
+                    int nr = h[1] + d[1];
                     if (Math.abs(nq) > safety || Math.abs(nr) > safety) continue;
                     String nk = hexKey(nq, nr);
                     if (!visited.contains(nk)) stack.push(nk);
@@ -153,7 +215,8 @@ public final class TerrainGeometry {
             hexSet.add(hexKey(h[0], h[1]));
             // Also add one neighbor inward for each boundary point (fuzz overlap)
             for (int[] d : DIRS) {
-                int nq = h[0] + d[0], nr = h[1] + d[1];
+                int nq = h[0] + d[0];
+                int nr = h[1] + d[1];
                 String nk = hexKey(nq, nr);
                 if (hexSet.contains(nk)) break; // already in set, good
             }
@@ -169,7 +232,8 @@ public final class TerrainGeometry {
      * For a CR that wraps around other-terrain regions, the outer boundary alone
      * would fill those regions — holes let the renderer carve them out via evenodd.
      *
-     * @return list of boundary loops; first element is the outer ring, rest are holes
+     * @param hexSet set of hex keys
+     * @return outer boundary polygon (largest bbox area)
      * @deprecated use {@link #hexSetToBoundaryWithHoles(Set)} for hole-aware rendering
      */
     @Deprecated
@@ -181,7 +245,10 @@ public final class TerrainGeometry {
         double bestArea = bboxArea(best);
         for (int i = 1; i < all.size(); i++) {
             double a = bboxArea(all.get(i));
-            if (a > bestArea) { best = all.get(i); bestArea = a; }
+            if (a > bestArea) {
+                best = all.get(i);
+                bestArea = a;
+            }
         }
         return best;
     }
@@ -193,6 +260,9 @@ public final class TerrainGeometry {
      * to render polygons with holes correctly.
      *
      * <p>Each ring is a closed polygon (first point == last point).
+     *
+     * @param hexSet set of hex keys
+     * @return list of boundary loops; first element is the outer ring, rest are holes
      */
     public static List<List<MapData.Pt>> hexSetToBoundaryWithHoles(Set<String> hexSet) {
         if (hexSet == null || hexSet.size() < 3) return List.of();
@@ -204,7 +274,8 @@ public final class TerrainGeometry {
         for (String key : set) {
             int[] h = parseHexKey(key);
             double[] pix = hexToPixel(h[0], h[1]);
-            double cx = pix[0], cy = pix[1];
+            double cx = pix[0];
+            double cy = pix[1];
 
             double[][] corners = new double[6][2];
             for (int i = 0; i < 6; i++) {
@@ -218,13 +289,17 @@ public final class TerrainGeometry {
                 int nr = h[1] + DIRS[d][1];
                 if (set.contains(hexKey(nq, nr))) continue; // shared edge
 
-                int c1 = d, c2 = (d + 1) % 6;
-                double x1 = corners[c1][0], y1 = corners[c1][1];
-                double x2 = corners[c2][0], y2 = corners[c2][1];
+                int c1 = d;
+                int c2 = (d + 1) % 6;
+                double x1 = corners[c1][0];
+                double y1 = corners[c1][1];
+                double x2 = corners[c2][0];
+                double y2 = corners[c2][1];
 
-                String k1 = cornerKey(x1, y1), k2 = cornerKey(x2, y2);
+                String k1 = cornerKey(x1, y1);
+                String k2 = cornerKey(x2, y2);
                 String segKey = k1.compareTo(k2) < 0 ? k1 + "-" + k2 : k2 + "-" + k1;
-                edgeSegments.putIfAbsent(segKey, new double[]{x1, y1, x2, y2});
+                edgeSegments.putIfAbsent(segKey, new double[] {x1, y1, x2, y2});
             }
         }
 
@@ -255,7 +330,10 @@ public final class TerrainGeometry {
 
                 String next = null;
                 for (String nb : graph.getOrDefault(cur, List.of())) {
-                    if (!globalVisited.contains(nb)) { next = nb; break; }
+                    if (!globalVisited.contains(nb)) {
+                        next = nb;
+                        break;
+                    }
                 }
                 if (next == null) {
                     if (!loop.isEmpty()) {
@@ -282,8 +360,10 @@ public final class TerrainGeometry {
 
     private static double bboxArea(List<MapData.Pt> pts) {
         if (pts == null || pts.isEmpty()) return 0;
-        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
-        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        double minX = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxY = -Double.MAX_VALUE;
         for (var p : pts) {
             if (p.x() < minX) minX = p.x();
             if (p.x() > maxX) maxX = p.x();
@@ -295,7 +375,7 @@ public final class TerrainGeometry {
 
     private static double[] parsePt(String s) {
         String[] parts = s.split("_");
-        return new double[]{Long.parseLong(parts[0]) / 1000.0, Long.parseLong(parts[1]) / 1000.0};
+        return new double[] {Long.parseLong(parts[0]) / 1000.0, Long.parseLong(parts[1]) / 1000.0};
     }
 
     /** Ramer–Douglas–Peucker simplification. Removes points that lie near the
@@ -308,10 +388,14 @@ public final class TerrainGeometry {
     private static List<MapData.Pt> rdp(List<MapData.Pt> pts, int start, int end, double eps) {
         double maxDist = 0;
         int maxIdx = start;
-        MapData.Pt a = pts.get(start), b = pts.get(end);
+        MapData.Pt a = pts.get(start);
+        MapData.Pt b = pts.get(end);
         for (int i = start + 1; i < end; i++) {
             double d = perpendicularDist(pts.get(i), a, b);
-            if (d > maxDist) { maxDist = d; maxIdx = i; }
+            if (d > maxDist) {
+                maxDist = d;
+                maxIdx = i;
+            }
         }
         List<MapData.Pt> result = new ArrayList<>();
         if (maxDist > eps) {
@@ -328,26 +412,41 @@ public final class TerrainGeometry {
     }
 
     private static double perpendicularDist(MapData.Pt p, MapData.Pt a, MapData.Pt b) {
-        double dx = b.x() - a.x(), dy = b.y() - a.y();
-        if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001)
-            return Math.hypot(p.x() - a.x(), p.y() - a.y());
+        double dx = b.x() - a.x();
+        double dy = b.y() - a.y();
+        if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return Math.hypot(p.x() - a.x(), p.y() - a.y());
         double t = ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / (dx * dx + dy * dy);
         t = Math.max(0, Math.min(1, t));
-        double projX = a.x() + t * dx, projY = a.y() + t * dy;
+        double projX = a.x() + t * dx;
+        double projY = a.y() + t * dy;
         return Math.hypot(p.x() - projX, p.y() - projY);
     }
 
     // ── Hex set relationships ────────────────────────────────
 
-    /** True if the two hex sets share at least one hex. */
+    /**
+     * True if the two hex sets share at least one hex.
+     *
+     * @param a first hex set
+     * @param b second hex set
+     * @return true if the sets intersect
+     */
     public static boolean intersects(Set<String> a, Set<String> b) {
         Set<String> smaller = a.size() <= b.size() ? a : b;
         Set<String> larger = smaller == a ? b : a;
-        for (String k : smaller) if (larger.contains(k)) return true;
+        for (String k : smaller) {
+            if (larger.contains(k)) return true;
+        }
         return false;
     }
 
-    /** True if any hex in {@code a} is neighbor to a hex in {@code b}. */
+    /**
+     * True if any hex in {@code a} is neighbor to a hex in {@code b}.
+     *
+     * @param a first hex set
+     * @param b second hex set
+     * @return true if any hex in a is adjacent to a hex in b
+     */
     public static boolean isAdjacent(Set<String> a, Set<String> b) {
         Set<String> smaller = a.size() <= b.size() ? a : b;
         Set<String> larger = smaller == a ? b : a;
@@ -360,7 +459,13 @@ public final class TerrainGeometry {
         return false;
     }
 
-    /** True if sets overlap or any hex from one is adjacent to the other. */
+    /**
+     * True if sets overlap or any hex from one is adjacent to the other.
+     *
+     * @param a first hex set
+     * @param b second hex set
+     * @return true if the sets intersect or are adjacent
+     */
     public static boolean overlapsOrAdjacent(Set<String> a, Set<String> b) {
         return intersects(a, b) || isAdjacent(a, b);
     }

@@ -6,10 +6,9 @@ import com.goatmosire.mcp.McpServer;
 import com.goatmosire.service.MapService;
 import com.gsim.app.AppConfig;
 import com.gsim.app.GSimulatorApplication;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.nio.file.Path;
 
 /**
  * GoatMosire entry point.
@@ -23,10 +22,22 @@ import java.nio.file.Path;
  *   java -Dgoatmosire.port=8711                 → custom HTTP port
  * </pre>
  */
-public class GoatMosireApp {
+public final class GoatMosireApp {
 
     private static final Logger log = LoggerFactory.getLogger(GoatMosireApp.class);
 
+    /** Private constructor to prevent instantiation of utility class. */
+    private GoatMosireApp() {}
+
+    /**
+     * Application entry point. Parses CLI arguments, initialises MapService,
+     * optionally starts the embedded GSimulator API, then starts the HTTP
+     * server and/or MCP server according to the resolved configuration.
+     *
+     * @param args command-line arguments (--http-only, --mcp-only, --help)
+     * @throws Exception if server initialisation fails critically
+     */
+    @SuppressFBWarnings("THROWS_METHOD_THROWS_CLAUSE_BASIC_EXCEPTION")
     public static void main(String[] args) throws Exception {
         GoatMosireConfig config = parseArgs(args);
         MapService mapService = new MapService(config.worldsDir());
@@ -38,23 +49,30 @@ public class GoatMosireApp {
 
         // ── Embedded GSimulator HTTP API server (for LLM/Agent MCP tools) ──
         GSimulatorApplication gsimApp = null;
-        int gsimPort = Integer.parseInt(System.getProperty("goatmosire.gsimPort",
-            System.getenv().getOrDefault("GOATMOSIRE_GSIM_PORT", "8710")));
+        int gsimPort = Integer.parseInt(System.getProperty(
+                "goatmosire.gsimPort", System.getenv().getOrDefault("GOATMOSIRE_GSIM_PORT", "8710")));
         if (!Boolean.parseBoolean(System.getProperty("goatmosire.noGsim", "false"))) {
             System.setProperty("api.port", String.valueOf(gsimPort));
             System.setProperty("api.enabled", "true");
             System.setProperty("worlds.dir", config.worldsDir().toAbsolutePath().toString());
             if (config.importDir() != null) {
-                System.setProperty("import.dir", config.importDir().toAbsolutePath().toString());
+                System.setProperty(
+                        "import.dir", config.importDir().toAbsolutePath().toString());
             }
             try {
-                final AppConfig gsimConfig = new AppConfig(
-                    new com.gsim.config.ConfigLoader(new String[0]).load());
+                final AppConfig gsimConfig = new AppConfig(new com.gsim.config.ConfigLoader(new String[0]).load());
                 final GSimulatorApplication app = new GSimulatorApplication(gsimConfig, false, true);
                 gsimApp = app;
-                new Thread(() -> {
-                    try { app.start(); } catch (Exception e) { log.error("GSim embed failed", e); }
-                }, "gsim-embed").start();
+                new Thread(
+                                () -> {
+                                    try {
+                                        app.start();
+                                    } catch (Exception e) {
+                                        log.error("GSim embed failed", e);
+                                    }
+                                },
+                                "gsim-embed")
+                        .start();
                 Thread.sleep(2000);
                 log.info("GSimulator HTTP API embedded on port {}", gsimPort);
             } catch (Exception e) {
@@ -98,6 +116,7 @@ public class GoatMosireApp {
         }
     }
 
+    @SuppressFBWarnings("DM_EXIT")
     private static GoatMosireConfig parseArgs(String[] args) {
         boolean httpOnly = false;
         boolean mcpOnly = false;
@@ -107,16 +126,17 @@ public class GoatMosireApp {
                 case "--http-only" -> httpOnly = true;
                 case "--mcp-only" -> mcpOnly = true;
                 case "--help", "-h" -> {
-                    System.out.println("""
+                    System.out.println(
+                            """
                         GoatMosire — Hex map editor and MCP bridge for GSim
-                        
+
                         Usage: java -jar goatmosire.jar [options]
-                        
+
                         Options:
                           --http-only     Start HTTP server only (no MCP)
                           --mcp-only      Start MCP stdio server only (no HTTP)
                           --help, -h      Show this help
-                        
+
                         System properties:
                           -Dgoatmosire.worldsDir=<path>   GSim worlds directory (default: ./worlds)
                           -Dgoatmosire.importDir=<path>   GSim import/docs directory (default: ./import)
@@ -125,6 +145,9 @@ public class GoatMosireApp {
                           -Dgoatmosire.noGsim=true        Disable embedded GSim API
                         """);
                     System.exit(0);
+                }
+                default -> {
+                    /* no action */
                 }
             }
         }

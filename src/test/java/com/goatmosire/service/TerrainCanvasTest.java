@@ -1,10 +1,10 @@
 package com.goatmosire.service;
 
-import com.gsim.map.MapData;
-import org.junit.jupiter.api.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.goatmosire.map.MapData;
 import java.util.*;
+import org.junit.jupiter.api.*;
 
 /**
  * Unit tests for {@link TerrainCanvas} overlap rules and hex query.
@@ -31,16 +31,18 @@ public class TerrainCanvasTest {
         double[] br = TerrainGeometry.hexToPixel(q + hexR, r + hexR);
         double[] bl = TerrainGeometry.hexToPixel(q - hexR, r + hexR);
         return List.of(
-            new MapData.Pt(tl[0] - 10, tl[1] - 10),
-            new MapData.Pt(tr[0] + 10, tr[1] - 10),
-            new MapData.Pt(br[0] + 10, br[1] + 10),
-            new MapData.Pt(bl[0] - 10, bl[1] + 10),
-            new MapData.Pt(tl[0] - 10, tl[1] - 10) // close
-        );
+                new MapData.Pt(tl[0] - 10, tl[1] - 10),
+                new MapData.Pt(tr[0] + 10, tr[1] - 10),
+                new MapData.Pt(br[0] + 10, br[1] + 10),
+                new MapData.Pt(bl[0] - 10, bl[1] + 10),
+                new MapData.Pt(tl[0] - 10, tl[1] - 10) // close
+                );
     }
 
     /** Quick hex key. */
-    static String hk(int q, int r) { return q + "_" + r; }
+    static String hk(int q, int r) {
+        return q + "_" + r;
+    }
 
     // ══════════════════════════════════════════════════════════
 
@@ -195,9 +197,8 @@ public class TerrainCanvasTest {
     void testSetBlocksFromGsimBlocks() {
         TerrainCanvas canvas = new TerrainCanvas();
         List<MapData.TerrainBlock> gsimBlocks = List.of(
-            new MapData.TerrainBlock("plains", rectPoly(0, 0, 3), hk(0, 0)),
-            new MapData.TerrainBlock("forest", rectPoly(10, 0, 2), hk(10, 0))
-        );
+                new MapData.TerrainBlock("plains", rectPoly(0, 0, 3), hk(0, 0)),
+                new MapData.TerrainBlock("forest", rectPoly(10, 0, 2), hk(10, 0)));
         canvas.setBlocks(gsimBlocks);
         assertEquals(2, canvas.size());
         assertEquals("plains", canvas.queryHex(0, 0));

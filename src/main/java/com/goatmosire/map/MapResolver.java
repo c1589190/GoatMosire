@@ -1,13 +1,18 @@
 package com.goatmosire.map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Resolves a hex map for any node by walking the parent chain.
@@ -36,6 +41,11 @@ public final class MapResolver {
     /**
      * Resolve the hex map for a given world + node by walking the parent chain.
      * Returns an empty default map if no map files exist at all.
+     *
+     * @param worldsDir the worlds root directory
+     * @param worldId   the world identifier
+     * @param nodeId    the node identifier
+     * @return the resolved MapData
      */
     public static MapData resolve(Path worldsDir, String worldId, String nodeId) {
         List<String> chain = walkParentChain(worldsDir, worldId, nodeId);
@@ -64,6 +74,11 @@ public final class MapResolver {
 
     /**
      * Resolve the map for every node in the chain and return per-node history.
+     *
+     * @param worldsDir the worlds root directory
+     * @param worldId   the world identifier
+     * @param nodeId    the node identifier
+     * @return list of history entries for each node in the chain
      */
     public static List<HistoryEntry> history(Path worldsDir, String worldId, String nodeId) {
         List<String> chain = walkParentChain(worldsDir, worldId, nodeId);
@@ -89,10 +104,26 @@ public final class MapResolver {
         return entries;
     }
 
+    /**
+     * A snapshot of the map at a specific node in the chain.
+     *
+     * @param nodeId    the node identifier
+     * @param map       the resolved map at this node
+     * @param diff      the diff from parent, or null if root
+     * @param hasOwnMap whether this node has its own map file
+     */
     public record HistoryEntry(String nodeId, MapData map, MapDiff diff, boolean hasOwnMap) {}
 
     // ── Parent chain walking ─────────────────────────────
 
+    /**
+     * Walk the parent chain from a node up to the root.
+     *
+     * @param worldsDir the worlds root directory
+     * @param worldId   the world identifier
+     * @param nodeId    the starting node identifier
+     * @return list of node ids from root to the starting node, or empty if the nodes dir does not exist
+     */
     static List<String> walkParentChain(Path worldsDir, String worldId, String nodeId) {
         Path nodesDir = worldsDir.resolve(worldId).resolve("nodes");
         if (!Files.isDirectory(nodesDir)) return List.of();
@@ -138,9 +169,12 @@ public final class MapResolver {
 
     // ── Diff application ─────────────────────────────────
 
-    static MapData applyDiff(MapData base, MapDiff diff,
-                              List<String> chain, List<MapData.CompressedRegion> baseCrs,
-                              Map<String, MapDiff> chainDiffs) {
+    static MapData applyDiff(
+            MapData base,
+            MapDiff diff,
+            List<String> chain,
+            List<MapData.CompressedRegion> baseCrs,
+            Map<String, MapDiff> chainDiffs) {
         // Hexes
         Map<String, MapData.HexCell> hexes = new LinkedHashMap<>(base.hexes());
         for (String key : diff.removed()) {
@@ -178,14 +212,21 @@ public final class MapResolver {
         for (int i = 1; i < chain.size(); i++) {
             MapDiff d = chainDiffs.get(chain.get(i));
             if (d != null && !d.compressedRegions().isEmpty()) {
-                crs = new ArrayList<>(d.compressedRegions());  // child CRs replace, not merge
+                crs = new ArrayList<>(d.compressedRegions()); // child CRs replace, not merge
             }
         }
 
         return new MapData(
-            base.gridSize(), base.hexOrientation(),
-            hexes, base.terrainBlocks(), provinces, cities, rivers, roads,
-            base.terrainTypes(), crs, base.pathwayGroups()
-        );
+                base.gridSize(),
+                base.hexOrientation(),
+                hexes,
+                base.terrainBlocks(),
+                provinces,
+                cities,
+                rivers,
+                roads,
+                base.terrainTypes(),
+                crs,
+                base.pathwayGroups());
     }
 }

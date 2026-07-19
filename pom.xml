@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.goatmosire</groupId>
@@ -13,23 +11,22 @@
     <description>Hex map editor and MCP bridge for GSim — Hermes Agent plugin</description>
 
     <properties>
+
+        <!-- Code quality plugin versions -->
+        <checkstyle.version>10.26.1</checkstyle.version>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spotbugs-maven-plugin.version>4.10.2.0</spotbugs-maven-plugin.version>
+        <spotless.version>3.7.0</spotless.version>
     </properties>
 
-    <repositories>
-        <repository>
-            <id>local-lib</id>
-            <url>file://${project.basedir}/lib</url>
-        </repository>
-    </repositories>
-
     <dependencies>
-        <!-- GSimulator — single fat JAR: gsim-core + gsim-app + gsim-mcp + all transitive deps -->
+        <!-- GSimulator library — all application code (Agent, WorldInfo, MCP, HTTP API) -->
         <dependency>
             <groupId>com.gsim</groupId>
-            <artifactId>gsim-mcp</artifactId>
+            <artifactId>gsim-lib</artifactId>
             <version>0.1.0-Alpha1</version>
         </dependency>
 
@@ -40,7 +37,22 @@
             <version>5.11.4</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- SpotBugs annotations for @SuppressFBWarnings -->
+        <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
+            <version>4.10.2</version>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>local-lib</id>
+            <url>file://${project.basedir}/lib</url>
+        </repository>
+    </repositories>
 
     <build>
         <plugins>
@@ -64,8 +76,10 @@
                 <version>3.6.0</version>
                 <executions>
                     <execution>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
                         <phase>package</phase>
-                        <goals><goal>shade</goal></goals>
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
@@ -73,6 +87,107 @@
                                 </transformer>
                             </transformers>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Spotless: code formatter -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <formats>
+                        <format>
+                            <includes>
+                                <include>*.md</include>
+                                <include>.gitignore</include>
+                            </includes>
+                            <trimTrailingWhitespace/>
+                            <endWithNewline/>
+                        </format>
+                    </formats>
+                    <java>
+                        <removeUnusedImports/>
+                        <palantirJavaFormat>
+                            <version>2.50.0</version>
+                        </palantirJavaFormat>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+                    <pom>
+                        <includes>
+                            <include>pom.xml</include>
+                        </includes>
+                        <sortPom>
+                            <encoding>UTF-8</encoding>
+                            <nrOfIndentSpace>4</nrOfIndentSpace>
+                            <keepBlankLines>true</keepBlankLines>
+                            <sortProperties>true</sortProperties>
+                        </sortPom>
+                    </pom>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotless-check</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>verify</phase>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Checkstyle: code style checker -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${maven-checkstyle-plugin.version}</version>
+                <configuration>
+                    <configLocation>gsim_checks.xml</configLocation>
+                    <failOnViolation>false</failOnViolation>
+                    <violationSeverity>warning</violationSeverity>
+                    <consoleOutput>true</consoleOutput>
+                    <sourceDirectories>
+                        <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
+                    </sourceDirectories>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>${checkstyle.version}</version>
+                    </dependency>
+                </dependencies>
+                <executions>
+                    <execution>
+                        <id>checkstyle-check</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>verify</phase>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- SpotBugs: static analysis bug finder -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs-maven-plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <failOnError>false</failOnError>
+                    <includeTests>true</includeTests>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>verify</phase>
                     </execution>
                 </executions>
             </plugin>
