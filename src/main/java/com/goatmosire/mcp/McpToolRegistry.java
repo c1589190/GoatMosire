@@ -7,6 +7,7 @@ import com.goatmosire.map.MapDiff;
 import com.goatmosire.map.MapResolver;
 import com.goatmosire.map.MapStore;
 import com.goatmosire.service.MapService;
+import com.gsim.mcp.ToolDef;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -25,7 +26,7 @@ import org.slf4j.LoggerFactory;
  * Registry of MCP tools exposed by GoatMosire.
  * All tools are prefixed "goatmosire_" for Hermes auto-discovery.
  */
-public class McpToolRegistry {
+public class McpToolRegistry implements com.gsim.mcp.McpToolRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(McpToolRegistry.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -46,13 +47,12 @@ public class McpToolRegistry {
         registerAll();
     }
 
-    public record ToolDef(String name, String description, String schema) {}
-
     /**
      * Returns an immutable snapshot of all registered tool definitions.
      *
      * @return list of all tool definitions
      */
+    @Override
     public List<ToolDef> all() {
         return List.copyOf(tools.values());
     }
@@ -66,7 +66,8 @@ public class McpToolRegistry {
      * @throws IOException if JSON serialization fails
      * @throws IllegalArgumentException if the tool name is unknown
      */
-    public String execute(String name, JsonNode args) throws IOException {
+    @Override
+    public String execute(String name, JsonNode args) throws Exception {
         ToolDef tool = tools.get(name);
         if (tool == null) throw new IllegalArgumentException("Unknown tool: " + name);
         return switch (name) {

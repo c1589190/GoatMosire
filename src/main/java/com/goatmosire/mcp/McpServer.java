@@ -1,40 +1,30 @@
 package com.goatmosire.mcp;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.goatmosire.service.MapService;
+import com.gsim.mcp.AbstractMcpServer;
 import com.gsim.mcp.GsimMcpToolRegistry;
+import com.gsim.mcp.McpToolRegistry;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * MCP (Model Context Protocol) JSON-RPC 2.0 server over stdio.
+ * GoatMosire MCP (Model Context Protocol) server over stdio.
  *
- * <p>Implements the minimum MCP spec: initialize, tools/list, tools/call.
- * Merges both GoatMosire map tools and GSim world/document management tools.
- * All GoatMosire tools are prefixed "goatmosire_", GSim tools prefixed "gsim_".
+ * <p>Extends {@link AbstractMcpServer} for JSON-RPC 2.0 protocol handling.
+ * Merges both GoatMosire map tools ({@code goatmosire_*}) and GSim world/document
+ * management tools ({@code gsim_*}) via the standard {@link McpToolRegistry} interface.
+ *
+ * <p>All GoatMosire tools are prefixed "goatmosire_", GSim tools prefixed "gsim_".
  */
-public class McpServer implements Runnable {
+public class McpServer extends AbstractMcpServer {
 
     private static final Logger log = LoggerFactory.getLogger(McpServer.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final MapService mapService;
     private final McpToolRegistry goatRegistry;
-    private final GsimMcpToolRegistry gsimRegistry;
-    private volatile boolean running = true;
-    private volatile InputStream stdin;
+    private final McpToolRegistry gsimRegistry;
 
     /**
      * Creates an MCP server with both GoatMosire and GSim tool registries.
@@ -44,195 +34,51 @@ public class McpServer implements Runnable {
      */
     @SuppressFBWarnings("EI_EXPOSE_REP2") // MapService is a shared service class, not a data object
     public McpServer(MapService mapService, Path importDir) {
-        this.mapService = mapService;
-        this.goatRegistry = new McpToolRegistry(mapService);
-        this.gsimRegistry = new GsimMcpToolRegistry(mapService.getWorldsDir(), importDir, null);
+        super(List.of()); // registries set below after construction
+        this.goatRegistry = new com.goatmosire.mcp.McpToolRegistry(mapService);
+        GsimMcpToolRegistry rawGsim = new GsimMcpToolRegistry(mapService.getWorldsDir(), importDir, null);
+        this.gsimRegistry = rawGsim.asMcpRegistry();
+    }
+
+    // ── AbstractMcpServer template methods ──────────────────
+
+    @Override
+    protected String getServerName() {
+        return "GoatMosire";
     }
 
     @Override
-    public void run() {
-        start();
+    protected String getServerVersion() {
+        return "0.1.0";
     }
 
-    /**
-     * Starts the MCP server loop, reading JSON-RPC 2.0 requests from stdin
-     * and writing responses to stdout. Runs until {@link #stop()} is called
-     * or stdin reaches EOF.
-     */
-    public void start() {
-        log.info("MCP server starting on stdio... (goatmosire + gsim tools)");
-        stdin = System.in;
-        try (BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-                PrintWriter out = new PrintWriter(new OutputStreamWriter(System.out), true)) {
+    @Override
+    protected List<com.gsim.mcp.ToolDef> getAllTools() {
+        List<com.gsim.mcp.ToolDef> goat = goatRegistry.all();
+        List<com.gsim.mcp.ToolDef> gsim = gsimRegistry.all();
+        List<com.gsim.mcp.ToolDef> all = new java.util.ArrayList<>(goat);
+        all.addAll(gsim);
+        log.info("tools/list: {} goatmosire + {} gsim = {} total", goat.size(), gsim.size(), all.size());
+        return all;
+    }
 
-            String line;
-            while (running && (line = in.readLine()) != null) {
-                if (line.isBlank()) continue;
-                try {
-                    JsonNode req = MAPPER.readTree(line);
-                    String method = req.has("method") ? req.get("method").asText() : "";
-                    String id = req.has("id") && !req.get("id").isNull()
-                            ? req.get("id").toString()
-                            : null;
-
-                    switch (method) {
-                        case "initialize" -> out.println(jsonRpc(id, handleInitialize(req)));
-                        case "notifications/initialized" -> {
-                            /* no-op */
-                        }
-                        case "tools/list" -> out.println(jsonRpc(id, handleToolsList()));
-                        case "tools/call" -> out.println(jsonRpc(id, handleToolCall(req)));
-                        default -> out.println(jsonRpcError(id, -32601, "Method not found: " + method));
-                    }
-                } catch (IOException e) {
-                    log.error("MCP error", e);
-                    out.println(jsonRpcError(null, -32700, "Parse error: " + e.getMessage()));
-                }
-            }
-        } catch (IOException e) {
-            log.error("MCP I/O error", e);
+    @Override
+    protected String executeTool(String name, com.fasterxml.jackson.databind.JsonNode args) throws Exception {
+        // Route: gsim_* tools go to GSim registry, goatmosire_* to GoatMosire
+        if (name.startsWith("gsim_")) {
+            return gsimRegistry.execute(name, args);
         }
-        log.info("MCP server stopped");
+        return goatRegistry.execute(name, args);
     }
+
+    // ── Lifecycle ───────────────────────────────────────────
 
     /**
      * Signals the server loop to stop and closes stdin.
      */
+    @Override
     public void stop() {
-        running = false;
-        try {
-            if (stdin != null) stdin.close();
-        } catch (IOException ignored) {
-        }
-    }
-
-    // ── Handlers ──────────────────────────────────────────
-
-    private JsonNode handleInitialize(JsonNode req) {
-        ObjectNode result = MAPPER.createObjectNode();
-        result.put("protocolVersion", "2024-11-05");
-
-        ObjectNode caps = MAPPER.createObjectNode();
-        caps.set("tools", MAPPER.createObjectNode());
-        result.set("capabilities", caps);
-
-        ObjectNode info = MAPPER.createObjectNode();
-        info.put("name", "GoatMosire");
-        info.put("version", "0.1.0");
-        result.set("serverInfo", info);
-
-        return result;
-    }
-
-    private JsonNode handleToolsList() {
-        List<GsimMcpToolRegistry.ToolDef> gsimTools = gsimRegistry.all();
-        List<McpToolRegistry.ToolDef> goatTools = goatRegistry.all();
-
-        ArrayNode tools = MAPPER.createArrayNode();
-
-        // Add GoatMosire tools
-        for (McpToolRegistry.ToolDef tool : goatTools) {
-            ObjectNode t = MAPPER.createObjectNode();
-            t.put("name", tool.name());
-            t.put("description", tool.description());
-            try {
-                t.set("inputSchema", MAPPER.readTree(tool.schema()));
-            } catch (IOException e) {
-                log.warn("Invalid schema for tool {}", tool.name(), e);
-            }
-            tools.add(t);
-        }
-
-        // Add GSim tools (prefixed "gsim_")
-        for (GsimMcpToolRegistry.ToolDef tool : gsimTools) {
-            ObjectNode t = MAPPER.createObjectNode();
-            t.put("name", tool.name());
-            t.put("description", tool.description());
-            try {
-                t.set("inputSchema", MAPPER.readTree(tool.schema()));
-            } catch (IOException e) {
-                log.warn("Invalid schema for tool {}", tool.name(), e);
-            }
-            tools.add(t);
-        }
-
-        log.info("tools/list: {} goatmosire + {} gsim = {} total", goatTools.size(), gsimTools.size(), tools.size());
-
-        ObjectNode result = MAPPER.createObjectNode();
-        result.set("tools", tools);
-        return result;
-    }
-
-    private JsonNode handleToolCall(JsonNode req) {
-        JsonNode params = req.get("params");
-        String toolName = params.has("name") ? params.get("name").asText() : "";
-        JsonNode args = params.has("arguments") ? params.get("arguments") : MAPPER.createObjectNode();
-
-        try {
-            String result;
-
-            // Route: gsim_* tools go to GSim registry, goatmosire_* to GoatMosire
-            if (toolName.startsWith("gsim_")) {
-                result = gsimRegistry.execute(toolName, args);
-            } else {
-                result = goatRegistry.execute(toolName, args);
-            }
-
-            ArrayNode content = MAPPER.createArrayNode();
-            ObjectNode text = MAPPER.createObjectNode();
-            text.put("type", "text");
-            text.put("text", result);
-            content.add(text);
-            ObjectNode out = MAPPER.createObjectNode();
-            out.set("content", content);
-            return out;
-        } catch (IllegalArgumentException e) {
-            return errorResult(-32602, "Unknown tool: " + toolName);
-        } catch (Exception e) {
-            log.error("Tool error: {}", toolName, e);
-            return errorResult(-32000, "Tool error: " + e.getMessage());
-        }
-    }
-
-    // ── JSON-RPC helpers ──────────────────────────────────
-
-    private static String jsonRpc(String id, JsonNode result) {
-        ObjectNode r = MAPPER.createObjectNode();
-        r.put("jsonrpc", "2.0");
-        if (id != null) {
-            try {
-                r.set("id", MAPPER.readTree(id));
-            } catch (IOException e) {
-                r.put("id", id);
-            }
-        }
-        r.set("result", result);
-        return r.toString();
-    }
-
-    private static String jsonRpcError(String id, int code, String message) {
-        ObjectNode r = MAPPER.createObjectNode();
-        r.put("jsonrpc", "2.0");
-        if (id != null) {
-            try {
-                r.set("id", MAPPER.readTree(id));
-            } catch (IOException e) {
-                r.put("id", id);
-            }
-        }
-        ObjectNode err = MAPPER.createObjectNode();
-        err.put("code", code);
-        err.put("message", message);
-        r.set("error", err);
-        return r.toString();
-    }
-
-    private static JsonNode errorResult(int code, String message) {
-        ObjectNode r = MAPPER.createObjectNode();
-        ObjectNode err = MAPPER.createObjectNode();
-        err.put("code", code);
-        err.put("message", message);
-        r.set("error", err);
-        return r;
+        log.info("[MCP-LIFECYCLE] GoatMosire MCP server stop requested");
+        super.stop();
     }
 }
